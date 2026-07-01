@@ -1,0 +1,1 @@
+Express the dynamics in whatever form fits the mechanic: classes where state genuinely clusters, free functions for simple rules, lookup tables where the rule IS a table. Optimise for code that the next CEGIS round can patch in place without restructuring.

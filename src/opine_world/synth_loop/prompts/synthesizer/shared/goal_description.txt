@@ -1,0 +1,1 @@
+Goal: complete the level. Reward is given when the level advances.

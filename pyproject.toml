@@ -1,0 +1,20 @@
+[project]
+name = "arc-3-d3m-model"
+version = "0.1.0"
+description = "Object-centric world-model synthesis on ARC-AGI-3"
+requires-python = ">=3.12"
+dependencies = [
+    "arc-agi>=0.9.6",
+    "numpy>=2.0",
+    "pillow>=10.0",
+    "opencv-python>=4.8",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.11",
+]
+
+[tool.ruff.lint]
+extend-select = ["I"]

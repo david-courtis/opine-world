@@ -1,0 +1,1 @@
+The log has grown since your last analysis. Re-read the new `[STEP N]` blocks. Focus on what changed: new moves, score transitions, and whether your previous plan worked. Then write next_actions.json.

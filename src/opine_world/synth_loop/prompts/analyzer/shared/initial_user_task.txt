@@ -1,0 +1,1 @@
+Fresh run. Deeply analyse `run_log.txt` to understand what the agent has been doing, what has worked, what hasn't, and what patterns explain the game's behaviour. Then write next_actions.json.

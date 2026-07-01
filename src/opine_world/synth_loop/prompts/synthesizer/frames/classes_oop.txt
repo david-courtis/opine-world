@@ -1,0 +1,1 @@
+Use `class` statements (one or more) to organize the transition logic. Helper functions at module scope are allowed.

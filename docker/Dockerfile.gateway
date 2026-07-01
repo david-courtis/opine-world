@@ -1,0 +1,41 @@
+# Transparent egress gateway for the claude analyzer/synth containers.
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    dnsmasq nftables iproute2 procps dnsutils ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG ALLOW_DOMAINS="anthropic.com claude.ai"
+ENV ALLOW_DOMAINS=${ALLOW_DOMAINS}
+
+RUN printf '%s\n' \
+    '#!/bin/sh' \
+    'set -e' \
+    'sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true' \
+    'EGRESS_IF=$(ip route show default | awk "{print \$5; exit}")' \
+    'echo "[gateway] egress interface: $EGRESS_IF"' \
+    'nft -f - <<EOF' \
+    'table inet fw {' \
+    '  set allowed4 { type ipv4_addr; flags timeout; }' \
+    '  chain forward {' \
+    '    type filter hook forward priority 0; policy drop;' \
+    '    ct state established,related accept' \
+    '    ip daddr @allowed4 accept' \
+    '  }' \
+    '}' \
+    'table ip natt {' \
+    '  chain post {' \
+    '    type nat hook postrouting priority 100; policy accept;' \
+    "    oifname \"\$EGRESS_IF\" masquerade" \
+    '  }' \
+    '}' \
+    'EOF' \
+    'NFTSETS=""' \
+    'for d in $ALLOW_DOMAINS; do NFTSETS="$NFTSETS --nftset=/$d/4#inet#fw#allowed4"; done' \
+    'echo "[gateway] dnsmasq nftsets: $NFTSETS"' \
+    'exec dnsmasq --keep-in-foreground --no-resolv --filter-AAAA \' \
+    '  --server=1.1.1.1 --server=8.8.8.8 $NFTSETS' \
+    > /entrypoint.sh && chmod +x /entrypoint.sh
+
+EXPOSE 53/udp 53/tcp
+CMD ["/entrypoint.sh"]

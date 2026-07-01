@@ -1,0 +1,1 @@
+Use `class` statements (one or more), typically one per committed tag, to organise the per-tag respond logic. Helper functions at module scope are allowed.

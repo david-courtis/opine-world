@@ -1,0 +1,17 @@
+CRITICAL RULES:
+1. Use a SINGLE `transition_function(state, action_id)` implementing the full state transition. NO `class` statements. Helper functions at module scope are allowed.
+2. `transition_function` returns the next state as a list of object dicts with the same schema as the input.
+3. The reward_function MUST detect when the hypothesized reward condition is met given the state.
+4. NO REPLAY-BUFFER LOOKUP. transition_function AND reward_function must NEVER read ``replay_buffer.pkl`` (it is the verifier's input; using it as a (state, action) -> after_state lookup is the canonical cheat: passes the local verifier perfectly but FAILS on any state not in the buffer, and is not a synthesised world model). The test runner statically rejects any model that references that filename. In-level transitions must be COMPUTED from (state, action).
+5. LEVEL-ENTRY CACHES are PROVIDED for the uncomputable cases. The engine writes ``l<N>_initial.pkl`` files (``l1_initial.pkl``, ``l2_initial.pkl``, ...) into this workspace, one per level the agent has observed so far. Each file is a pickled ``list[dict]``: the level's hand-designed entry state, same schema as before_state / after_state. Use them when predicting transitions whose after_state cannot be computed: the level_advance step from L_N to L_(N+1), and the RESET (ACTION0) step that returns to the start of the current level. Pattern:
+  ```python
+  import os, pickle
+  def _load_level_initial(fname):
+      here = os.path.dirname(os.path.abspath(__file__))
+      try:
+          with open(os.path.join(here, fname), 'rb') as f:
+              return pickle.load(f)
+      except Exception:
+          return []  # cache absent; fall through
+  ```
+If a cache for an unobserved future level is missing, the loader returns ``[]`` and your code must fall through gracefully to in-level logic in that case. If the replay buffer already contains a level_advance into level N but ``l<N>_initial.pkl`` is absent, treat that as an infrastructure defect to report in ``synth_learnings.md``, not as a legitimate accuracy ceiling. Do not normalize or accept a failed observed level-entry transition because a cache file is absent. Do NOT inline a level's entry state as a giant Python literal; use the file.

@@ -1,0 +1,1 @@
+Use a SINGLE top-level `transition_function`. NO `class` statements. Helper functions at module scope are allowed.

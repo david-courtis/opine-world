@@ -1,0 +1,1 @@
+You have not produced any board-changing moves recently. Stop deliberating and commit a concrete probe: write next_actions.json with moves that test one specific hypothesis. Inaction wastes the run.

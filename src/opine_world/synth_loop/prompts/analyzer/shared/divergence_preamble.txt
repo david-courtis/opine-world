@@ -1,0 +1,3 @@
+
+
+[WORLD-MODEL DIVERGENCE -- images attached to this message] The attached frames are the game outcomes where the synthesised world model's prediction of your last plan was wrong. The first divergence is shown as before, then after; each later action in that plan shows its after frame. Reality differed from what the model expected exactly here, study them for the mechanic the model missed. Order: %%LABELS%%. If a diverging step produced intermediate animation (an `[ACTION_SEQUENCE n=N]` block in run_log), also READ its per-tick frames at `../frames/step_<NNNN>_tick_<KK>.png` -- the missed mechanic often only appears mid-animation and is gone by the settled after-frame.

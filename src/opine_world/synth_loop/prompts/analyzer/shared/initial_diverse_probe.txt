@@ -1,0 +1,6 @@
+This is the first action-selection call for the run. Avoid opening with a long
+run of the same action unless the frame makes that overwhelmingly justified.
+Prefer a short, diverse probe that covers distinct available action classes:
+try different movement directions or one click/interaction target before
+repeating a direction. The goal is to learn the action semantics quickly, not
+to burn the first plan on identical moves.
