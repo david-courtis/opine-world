@@ -6,7 +6,7 @@ OPINE-World is an LLM agent that learns an object-centric programmatic world mod
 
 On ARC-AGI-3, a benchmark for skill-acquisition efficiency in which the object vocabulary, the goal, and the action semantics are withheld, OPINE-World solves 20 of 25 games and 160 of 183 levels with no per-game training. It reaches an action-efficiency score of 78.4 against the human baseline.
 
-> **Paper:** TODO, link to be added.
+> **Paper:** <http://arxiv.org/abs/2607.01531>
 
 > **Run artifacts archive:** <https://drive.google.com/drive/folders/1IiwYWG5jthunJGrM7-EpVmX_UcPty2LV>
 
@@ -120,5 +120,13 @@ The paper's sweep ran across four Claude Max accounts at $200 per account per mo
 ## Citation
 
 ```
-TODO, add citation once the paper is public.
+@misc{courtis2026opineworldprogrammaticworldmodeling,
+      title={OPINE-World: Programmatic World Modeling with Ontology-error-Prioritized Interactive Exploration}, 
+      author={David Courtis and Wenhao Li and Scott Sanner},
+      year={2026},
+      eprint={2607.01531},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2607.01531}, 
+}
 ```
