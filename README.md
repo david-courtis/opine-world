@@ -27,9 +27,9 @@ The full method and formalization are in the paper and its appendix.
 
 ## Evaluation integrity
 
-Every result was produced from pure agent interaction. No domain-specific information from the ARC-AGI-3 source is exposed to the agents.
+Every result was produced from pure agent interaction. No domain-specific information from the ARC-AGI-3 source is exposed to the agents. 
 
-The agents are given only the general structure of the benchmark and the task to solve: the raw rendered frames (64x64 grids of color indices), the set of available action ids for the current game, and the sparse level-advance reward signal. Nothing else.
+The agents are given only the general structure of the benchmark and the task to solve: the raw rendered frames (64x64 grids of color indices), the set of available action ids for the current game, and the sparse level-advance reward signal. Although this codebase can run in a mode that exposes sprite level object information through game engine source access, that mode was not enabled for the reported results. Future work will rely on this mode for ablation and object-centric results testing, but this was not enabled in the official ARC-3 leaderboard submission. 
 
 They are never given, and cannot read, any domain-specific knowledge: the game's source code, object or sprite identities and types, the goal, the action semantics, or any human-authored solution or hint. The object vocabulary, the goal, and each action's effect are all inferred by acting in the environment.
 
