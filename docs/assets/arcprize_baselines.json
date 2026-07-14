@@ -1,0 +1,2616 @@
+{
+ "agents": {
+  "GPT-5.6 Sol (max effort)": {
+   "levels_total": 48,
+   "games_won": 1,
+   "per_game": {
+    "ar25": {
+     "levels": 5,
+     "actions": 680,
+     "level_scores": [
+      115,
+      115,
+      5.9,
+      115,
+      115,
+      0,
+      0,
+      0
+     ]
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105,
+     "level_scores": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cd82": {
+     "levels": 1,
+     "actions": 52,
+     "level_scores": [
+      115,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "cn04": {
+     "levels": 4,
+     "actions": 911,
+     "level_scores": [
+      115,
+      115,
+      4.6,
+      76.9,
+      0,
+      0
+     ]
+    },
+    "dc22": {
+     "levels": 2,
+     "actions": 427,
+     "level_scores": [
+      115,
+      115,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "ft09": {
+     "levels": 6,
+     "actions": 152,
+     "level_scores": [
+      115,
+      115,
+      115,
+      115,
+      115,
+      17.3
+     ]
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390,
+     "level_scores": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "ka59": {
+     "levels": 1,
+     "actions": 562,
+     "level_scores": [
+      115,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "lf52": {
+     "levels": 1,
+     "actions": 413,
+     "level_scores": [
+      115,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "lp85": {
+     "levels": 5,
+     "actions": 373,
+     "level_scores": [
+      115,
+      115,
+      115,
+      37.9,
+      115,
+      0,
+      0,
+      0
+     ]
+    },
+    "ls20": {
+     "levels": 1,
+     "actions": 632,
+     "level_scores": [
+      115,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "m0r0": {
+     "levels": 1,
+     "actions": 613,
+     "level_scores": [
+      26.8,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "r11l": {
+     "levels": 2,
+     "actions": 286,
+     "level_scores": [
+      115,
+      115,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "re86": {
+     "levels": 3,
+     "actions": 668,
+     "level_scores": [
+      108.2,
+      91.1,
+      115,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100,
+     "level_scores": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "sb26": {
+     "levels": 1,
+     "actions": 205,
+     "level_scores": [
+      7.7,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "sc25": {
+     "levels": 3,
+     "actions": 506,
+     "level_scores": [
+      64.0,
+      29.8,
+      83.6,
+      0,
+      0,
+      0
+     ]
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305,
+     "level_scores": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "sp80": {
+     "levels": 3,
+     "actions": 779,
+     "level_scores": [
+      115,
+      115,
+      115,
+      0,
+      0,
+      0
+     ]
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110,
+     "level_scores": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "tn36": {
+     "levels": 1,
+     "actions": 374,
+     "level_scores": [
+      115,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "tr87": {
+     "levels": 1,
+     "actions": 344,
+     "level_scores": [
+      4.7,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "tu93": {
+     "levels": 2,
+     "actions": 271,
+     "level_scores": [
+      49.5,
+      4.7,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "vc33": {
+     "levels": 3,
+     "actions": 352,
+     "level_scores": [
+      100,
+      115,
+      115,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    "wa30": {
+     "levels": 2,
+     "actions": 1009,
+     "level_scores": [
+      102.9,
+      12.8,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    }
+   },
+   "api_config": "openai-gpt-5-6-sol-max",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.6 Terra (max effort)": {
+   "levels_total": 15,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 2,
+     "actions": 492
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 1,
+     "actions": 366
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 3,
+     "actions": 182
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 1,
+     "actions": 582
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 1,
+     "actions": 198
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 1,
+     "actions": 628
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 2,
+     "actions": 633
+    },
+    "s5i5": {
+     "levels": 2,
+     "actions": 671
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 90
+    },
+    "sc25": {
+     "levels": 1,
+     "actions": 53
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 1,
+     "actions": 302
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "openai-gpt-5-6-terra-max",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "Claude Opus 4.8 (high effort)": {
+   "levels_total": 29,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 4,
+     "actions": 1133
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 1,
+     "actions": 195
+    },
+    "dc22": {
+     "levels": 3,
+     "actions": 866
+    },
+    "ft09": {
+     "levels": 3,
+     "actions": 167
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 140
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 4,
+     "actions": 212
+    },
+    "ls20": {
+     "levels": 1,
+     "actions": 644
+    },
+    "m0r0": {
+     "levels": 1,
+     "actions": 287
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 1,
+     "actions": 235
+    },
+    "s5i5": {
+     "levels": 2,
+     "actions": 309
+    },
+    "sb26": {
+     "levels": 1,
+     "actions": 149
+    },
+    "sc25": {
+     "levels": 0,
+     "actions": 180
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 2,
+     "actions": 178
+    },
+    "su15": {
+     "levels": 1,
+     "actions": 240
+    },
+    "tn36": {
+     "levels": 0,
+     "actions": 160
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 236
+    },
+    "tu93": {
+     "levels": 1,
+     "actions": 103
+    },
+    "vc33": {
+     "levels": 3,
+     "actions": 388
+    },
+    "wa30": {
+     "levels": 1,
+     "actions": 672
+    }
+   },
+   "api_config": "anthropic-opus-4-8-high",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.4 (high, 2026-03-05)": {
+   "levels_total": 4,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 0,
+     "actions": 160
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 0,
+     "actions": 108
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 140
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 1,
+     "actions": 59
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 0,
+     "actions": 123
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 0,
+     "actions": 130
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 90
+    },
+    "sc25": {
+     "levels": 1,
+     "actions": 205
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 1,
+     "actions": 363
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 1,
+     "actions": 441
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "openai-gpt-5-4-2026-03-05-high",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "Gemini 3.1 Pro (preview)": {
+   "levels_total": 6,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 0,
+     "actions": 110
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 53
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 100
+    },
+    "ft09": {
+     "levels": 1,
+     "actions": 48
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 43
+    },
+    "lf52": {
+     "levels": 1,
+     "actions": 136
+    },
+    "lp85": {
+     "levels": 0,
+     "actions": 31
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 0,
+     "actions": 150
+    },
+    "r11l": {
+     "levels": 1,
+     "actions": 29
+    },
+    "re86": {
+     "levels": 0,
+     "actions": 101
+    },
+    "s5i5": {
+     "levels": 1,
+     "actions": 18
+    },
+    "sb26": {
+     "levels": 1,
+     "actions": 206
+    },
+    "sc25": {
+     "levels": 0,
+     "actions": 147
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 1,
+     "actions": 51
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 0,
+     "actions": 160
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 199
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 67
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 305
+    }
+   },
+   "api_config": "google-gemini-3-1-pro-preview",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "Claude Opus 4.6 (max effort)": {
+   "levels_total": 4,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 0,
+     "actions": 160
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 0,
+     "actions": 215
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 131
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 140
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 1,
+     "actions": 201
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 0,
+     "actions": 150
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 0,
+     "actions": 130
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 51
+    },
+    "sb26": {
+     "levels": 1,
+     "actions": 208
+    },
+    "sc25": {
+     "levels": 0,
+     "actions": 180
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 1,
+     "actions": 90
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 1,
+     "actions": 148
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "anthropic-opus-4-6-max-effort",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "Grok 4.20 (beta 0309 reasoning)": {
+   "levels_total": 0,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 0,
+     "actions": 101
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 0,
+     "actions": 0
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 129
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 140
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 136
+    },
+    "lp85": {
+     "levels": 0,
+     "actions": 10
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 0,
+     "actions": 56
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 55
+    },
+    "re86": {
+     "levels": 0,
+     "actions": 87
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 74
+    },
+    "sc25": {
+     "levels": 0,
+     "actions": 180
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 18
+    },
+    "sp80": {
+     "levels": 0,
+     "actions": 133
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 19
+    },
+    "tn36": {
+     "levels": 0,
+     "actions": 62
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 68
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 322
+    }
+   },
+   "api_config": "xai-grok-4-20-beta-0309-reasoning",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.5 (high, 2026-04-23)": {
+   "levels_total": 5,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 0,
+     "actions": 160
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 1,
+     "actions": 66
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 140
+    },
+    "lf52": {
+     "levels": 1,
+     "actions": 465
+    },
+    "lp85": {
+     "levels": 0,
+     "actions": 85
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 0,
+     "actions": 150
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 0,
+     "actions": 130
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 90
+    },
+    "sc25": {
+     "levels": 1,
+     "actions": 52
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 1,
+     "actions": 298
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 1,
+     "actions": 73
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "openai-gpt-5-5-2026-04-23-high",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "Claude Opus 4.7 (high effort)": {
+   "levels_total": 4,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 1,
+     "actions": 386
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 1,
+     "actions": 70
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 1,
+     "actions": 582
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 0,
+     "actions": 85
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 0,
+     "actions": 150
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 1,
+     "actions": 298
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 90
+    },
+    "sc25": {
+     "levels": 0,
+     "actions": 21
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 0,
+     "actions": 195
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 0,
+     "actions": 160
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "anthropic-opus-4-7-high",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.6 Sol (xhigh)": {
+   "levels_total": 36,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 2,
+     "actions": 410
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 1,
+     "actions": 103
+    },
+    "cn04": {
+     "levels": 1,
+     "actions": 160
+    },
+    "dc22": {
+     "levels": 1,
+     "actions": 343
+    },
+    "ft09": {
+     "levels": 4,
+     "actions": 296
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 1,
+     "actions": 566
+    },
+    "lf52": {
+     "levels": 1,
+     "actions": 130
+    },
+    "lp85": {
+     "levels": 5,
+     "actions": 382
+    },
+    "ls20": {
+     "levels": 2,
+     "actions": 567
+    },
+    "m0r0": {
+     "levels": 1,
+     "actions": 189
+    },
+    "r11l": {
+     "levels": 1,
+     "actions": 195
+    },
+    "re86": {
+     "levels": 2,
+     "actions": 492
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 90
+    },
+    "sc25": {
+     "levels": 2,
+     "actions": 224
+    },
+    "sk48": {
+     "levels": 1,
+     "actions": 978
+    },
+    "sp80": {
+     "levels": 3,
+     "actions": 554
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 2,
+     "actions": 385
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 77
+    },
+    "tu93": {
+     "levels": 2,
+     "actions": 270
+    },
+    "vc33": {
+     "levels": 3,
+     "actions": 348
+    },
+    "wa30": {
+     "levels": 1,
+     "actions": 661
+    }
+   },
+   "api_config": "openai-gpt-5-6-sol-xhigh",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.6 Sol (high)": {
+   "levels_total": 30,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 2,
+     "actions": 471
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 1,
+     "actions": 294
+    },
+    "dc22": {
+     "levels": 1,
+     "actions": 585
+    },
+    "ft09": {
+     "levels": 4,
+     "actions": 374
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 1,
+     "actions": 612
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 3,
+     "actions": 135
+    },
+    "ls20": {
+     "levels": 1,
+     "actions": 650
+    },
+    "m0r0": {
+     "levels": 1,
+     "actions": 584
+    },
+    "r11l": {
+     "levels": 1,
+     "actions": 274
+    },
+    "re86": {
+     "levels": 1,
+     "actions": 236
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100
+    },
+    "sb26": {
+     "levels": 1,
+     "actions": 186
+    },
+    "sc25": {
+     "levels": 2,
+     "actions": 325
+    },
+    "sk48": {
+     "levels": 1,
+     "actions": 919
+    },
+    "sp80": {
+     "levels": 2,
+     "actions": 145
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 2,
+     "actions": 342
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 2,
+     "actions": 273
+    },
+    "vc33": {
+     "levels": 3,
+     "actions": 386
+    },
+    "wa30": {
+     "levels": 1,
+     "actions": 672
+    }
+   },
+   "api_config": "openai-gpt-5-6-sol-high",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.6 Sol (medium)": {
+   "levels_total": 12,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 2,
+     "actions": 407
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 2,
+     "actions": 128
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 1,
+     "actions": 564
+    },
+    "lf52": {
+     "levels": 1,
+     "actions": 548
+    },
+    "lp85": {
+     "levels": 1,
+     "actions": 266
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 1,
+     "actions": 612
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 1,
+     "actions": 238
+    },
+    "s5i5": {
+     "levels": 1,
+     "actions": 483
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 90
+    },
+    "sc25": {
+     "levels": 0,
+     "actions": 180
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 1,
+     "actions": 324
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 1,
+     "actions": 399
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "openai-gpt-5-6-sol-medium",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.6 Sol (low)": {
+   "levels_total": 9,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 1,
+     "actions": 307
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 1,
+     "actions": 82
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 1,
+     "actions": 608
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 1,
+     "actions": 200
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 1,
+     "actions": 588
+    },
+    "r11l": {
+     "levels": 1,
+     "actions": 269
+    },
+    "re86": {
+     "levels": 0,
+     "actions": 130
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 90
+    },
+    "sc25": {
+     "levels": 1,
+     "actions": 181
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 1,
+     "actions": 301
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 1,
+     "actions": 380
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "openai-gpt-5-6-sol-low",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.6 Terra (xhigh)": {
+   "levels_total": 11,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 0,
+     "actions": 160
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 1,
+     "actions": 67
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 140
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 1,
+     "actions": 213
+    },
+    "ls20": {
+     "levels": 1,
+     "actions": 647
+    },
+    "m0r0": {
+     "levels": 0,
+     "actions": 150
+    },
+    "r11l": {
+     "levels": 1,
+     "actions": 188
+    },
+    "re86": {
+     "levels": 1,
+     "actions": 278
+    },
+    "s5i5": {
+     "levels": 1,
+     "actions": 476
+    },
+    "sb26": {
+     "levels": 1,
+     "actions": 189
+    },
+    "sc25": {
+     "levels": 1,
+     "actions": 181
+    },
+    "sk48": {
+     "levels": 1,
+     "actions": 1093
+    },
+    "sp80": {
+     "levels": 1,
+     "actions": 323
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 1,
+     "actions": 447
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "openai-gpt-5-6-terra-xhigh",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.6 Terra (high)": {
+   "levels_total": 6,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 0,
+     "actions": 160
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 1,
+     "actions": 71
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 140
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 1,
+     "actions": 211
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 1,
+     "actions": 645
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 0,
+     "actions": 130
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100
+    },
+    "sb26": {
+     "levels": 1,
+     "actions": 189
+    },
+    "sc25": {
+     "levels": 0,
+     "actions": 180
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 1,
+     "actions": 359
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 1,
+     "actions": 457
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "openai-gpt-5-6-terra-high",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.6 Terra (medium)": {
+   "levels_total": 3,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 0,
+     "actions": 160
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 0,
+     "actions": 215
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 140
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 1,
+     "actions": 211
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 0,
+     "actions": 150
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 1,
+     "actions": 271
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 90
+    },
+    "sc25": {
+     "levels": 0,
+     "actions": 180
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 1,
+     "actions": 454
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 0,
+     "actions": 160
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "openai-gpt-5-6-terra-medium",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.6 Terra (low)": {
+   "levels_total": 2,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 0,
+     "actions": 160
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 86
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 0,
+     "actions": 215
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 140
+    },
+    "lf52": {
+     "levels": 1,
+     "actions": 514
+    },
+    "lp85": {
+     "levels": 1,
+     "actions": 206
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 0,
+     "actions": 150
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 0,
+     "actions": 130
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 80
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 90
+    },
+    "sc25": {
+     "levels": 0,
+     "actions": 180
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 0,
+     "actions": 195
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 0,
+     "actions": 160
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 59
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 36
+    }
+   },
+   "api_config": "openai-gpt-5-6-terra-low",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.6 Luna (medium)": {
+   "levels_total": 1,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 0,
+     "actions": 160
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 0,
+     "actions": 215
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 140
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 1,
+     "actions": 221
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 0,
+     "actions": 150
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 0,
+     "actions": 101
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 90
+    },
+    "sc25": {
+     "levels": 0,
+     "actions": 180
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 0,
+     "actions": 195
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 0,
+     "actions": 160
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "openai-gpt-5-6-luna-medium",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.6 Luna (max)": {
+   "levels_total": 0,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 0,
+     "actions": 160
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 0,
+     "actions": 36
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 140
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 0,
+     "actions": 85
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 0,
+     "actions": 150
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 0,
+     "actions": 130
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 90
+    },
+    "sc25": {
+     "levels": 0,
+     "actions": 180
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 0,
+     "actions": 195
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 0,
+     "actions": 160
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 64
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "openai-gpt-5-6-luna-max",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.6 Luna (low)": {
+   "levels_total": 0,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 0,
+     "actions": 160
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 0,
+     "actions": 215
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 140
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 0,
+     "actions": 85
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 0,
+     "actions": 150
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 0,
+     "actions": 130
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 90
+    },
+    "sc25": {
+     "levels": 0,
+     "actions": 180
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 0,
+     "actions": 195
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 0,
+     "actions": 160
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "openai-gpt-5-6-luna-low",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.6 Luna (high)": {
+   "levels_total": 0,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 0,
+     "actions": 160
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 0,
+     "actions": 215
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 140
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 0,
+     "actions": 85
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 0,
+     "actions": 150
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 0,
+     "actions": 130
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 90
+    },
+    "sc25": {
+     "levels": 0,
+     "actions": 180
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 0,
+     "actions": 195
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 0,
+     "actions": 160
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "openai-gpt-5-6-luna-high",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "GPT-5.6 Luna (xhigh)": {
+   "levels_total": 0,
+   "games_won": 0,
+   "per_game": {
+    "ar25": {
+     "levels": 0,
+     "actions": 160
+    },
+    "bp35": {
+     "levels": 0,
+     "actions": 105
+    },
+    "cd82": {
+     "levels": 0,
+     "actions": 275
+    },
+    "cn04": {
+     "levels": 0,
+     "actions": 145
+    },
+    "dc22": {
+     "levels": 0,
+     "actions": 295
+    },
+    "ft09": {
+     "levels": 0,
+     "actions": 215
+    },
+    "g50t": {
+     "levels": 0,
+     "actions": 390
+    },
+    "ka59": {
+     "levels": 0,
+     "actions": 140
+    },
+    "lf52": {
+     "levels": 0,
+     "actions": 160
+    },
+    "lp85": {
+     "levels": 0,
+     "actions": 85
+    },
+    "ls20": {
+     "levels": 0,
+     "actions": 110
+    },
+    "m0r0": {
+     "levels": 0,
+     "actions": 150
+    },
+    "r11l": {
+     "levels": 0,
+     "actions": 110
+    },
+    "re86": {
+     "levels": 0,
+     "actions": 130
+    },
+    "s5i5": {
+     "levels": 0,
+     "actions": 100
+    },
+    "sb26": {
+     "levels": 0,
+     "actions": 90
+    },
+    "sc25": {
+     "levels": 0,
+     "actions": 180
+    },
+    "sk48": {
+     "levels": 0,
+     "actions": 305
+    },
+    "sp80": {
+     "levels": 0,
+     "actions": 195
+    },
+    "su15": {
+     "levels": 0,
+     "actions": 110
+    },
+    "tn36": {
+     "levels": 0,
+     "actions": 160
+    },
+    "tr87": {
+     "levels": 0,
+     "actions": 270
+    },
+    "tu93": {
+     "levels": 0,
+     "actions": 95
+    },
+    "vc33": {
+     "levels": 0,
+     "actions": 35
+    },
+    "wa30": {
+     "levels": 0,
+     "actions": 355
+    }
+   },
+   "api_config": "openai-gpt-5-6-luna-xhigh",
+   "source": "POST https://arcprize.org/api/models with body {\"game_id\":\"<game>\",\"models\":[],\"runners\":[],\"configs\":[]} (per-task graph-view data, fetched 2026-07-11)"
+  },
+  "Agentica (Symbolica)": {
+   "levels_total": 113,
+   "games_won": 7,
+   "per_game": null,
+   "source": "https://www.symbolica.ai/blog/arc-agi-3 (blog states 36.08% unverified, 113/182 playable levels, 7/25 games, $1005; per-game breakdown not published)"
+  }
+ },
+ "notes": ""
+}

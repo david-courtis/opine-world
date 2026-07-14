@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;padding:0;overflow:hidden;background:#000}
+.stage{position:relative;width:1600px;height:1240px;overflow:hidden;background:#000;font-family:'Inter',system-ui,sans-serif}
+
+.inner{position:absolute;inset:0;padding:60px 150px 110px;display:flex;flex-direction:column;justify-content:center}
+.title{text-align:center;font-size:84px;transform:scaleX(1.14);transform-origin:center;font-weight:900;letter-spacing:-1px;color:#b48cf2}
+.subtitle{text-align:center;font-size:26px;letter-spacing:10px;margin-top:34px;color:#9a9fa8;font-weight:700}
+.barwrap{margin:60px 10px 0;height:64px;position:relative;border:2px solid #43464e;background:#0d0e11;border-radius:10px}
+.fill{position:absolute;left:5px;top:5px;bottom:5px;width:78.4%;background:linear-gradient(90deg,#f7b04a,#d8571c);border-radius:6px}
+.barlab{position:absolute;top:50%;transform:translateY(-50%);font-size:26px;left:24px;z-index:2;font-family:'JetBrains Mono',monospace;color:#000;font-weight:800}
+.barlab.right{left:auto;right:24px;color:#fff;font-weight:800}
+.hs{text-align:center;font-size:37px;letter-spacing:12px;margin-top:72px;color:#fff;font-weight:900}
+table{width:100%;margin-top:84px;border-collapse:collapse}
+td{font-size:30px;padding:27px 0;letter-spacing:2px;font-weight:700}
+td.rank{width:270px;font-family:'JetBrains Mono',monospace}
+td.score{text-align:right;width:330px;font-family:'JetBrains Mono',monospace;font-size:36px}
+.hdr td{color:#69dbff;font-weight:600}
+.r1 td{color:#5df06a}
+.r2 td{color:#f4d63a}
+.r3 td{color:#4aa3ff}
+.r4 td{color:#ff5ec4}
+.r5 td{color:#ff9a2e}
+.r1 td{font-size:31px}
+.r1 td.score{font-size:42px}
+.foot{position:absolute;left:0;right:0;bottom:34px;text-align:center;font-size:15px;letter-spacing:2px;color:#6a6f78}
+</style>
+</head>
+<body>
+<div class="stage">
+  <svg class="grid" width="1600" height="1240" style="position:absolute;inset:0" stroke="rgba(255,255,255,0.07)" stroke-width="2"><line x1="0" y1="-20" x2="1600" y2="-20"/><line x1="0" y1="75" x2="1600" y2="75"/><line x1="0" y1="175" x2="1600" y2="175"/><line x1="0" y1="283" x2="1600" y2="283"/><line x1="0" y1="399" x2="1600" y2="399"/><line x1="0" y1="523" x2="1600" y2="523"/><line x1="0" y1="656" x2="1600" y2="656"/><line x1="0" y1="798" x2="1600" y2="798"/><line x1="0" y1="951" x2="1600" y2="951"/><line x1="0" y1="1115" x2="1600" y2="1115"/><line x1="0" y1="1291" x2="1600" y2="1291"/><line x1="-2160" y1="1240" x2="-720" y2="0"/><line x1="-1975" y1="1240" x2="-625" y2="0"/><line x1="-1790" y1="1240" x2="-530" y2="0"/><line x1="-1605" y1="1240" x2="-435" y2="0"/><line x1="-1420" y1="1240" x2="-340" y2="0"/><line x1="-1235" y1="1240" x2="-245" y2="0"/><line x1="-1050" y1="1240" x2="-150" y2="0"/><line x1="-865" y1="1240" x2="-55" y2="0"/><line x1="-680" y1="1240" x2="40" y2="0"/><line x1="-495" y1="1240" x2="135" y2="0"/><line x1="-310" y1="1240" x2="230" y2="0"/><line x1="-125" y1="1240" x2="325" y2="0"/><line x1="60" y1="1240" x2="420" y2="0"/><line x1="245" y1="1240" x2="515" y2="0"/><line x1="430" y1="1240" x2="610" y2="0"/><line x1="615" y1="1240" x2="705" y2="0"/><line x1="800" y1="1240" x2="800" y2="0"/><line x1="985" y1="1240" x2="895" y2="0"/><line x1="1170" y1="1240" x2="990" y2="0"/><line x1="1355" y1="1240" x2="1085" y2="0"/><line x1="1540" y1="1240" x2="1180" y2="0"/><line x1="1725" y1="1240" x2="1275" y2="0"/><line x1="1910" y1="1240" x2="1370" y2="0"/><line x1="2095" y1="1240" x2="1465" y2="0"/><line x1="2280" y1="1240" x2="1560" y2="0"/><line x1="2465" y1="1240" x2="1655" y2="0"/><line x1="2650" y1="1240" x2="1750" y2="0"/><line x1="2835" y1="1240" x2="1845" y2="0"/><line x1="3020" y1="1240" x2="1940" y2="0"/><line x1="3205" y1="1240" x2="2035" y2="0"/><line x1="3390" y1="1240" x2="2130" y2="0"/><line x1="3575" y1="1240" x2="2225" y2="0"/><line x1="3760" y1="1240" x2="2320" y2="0"/></svg>
+  <div class="inner">
+    <div class="title">ARC-AGI-3 2026</div>
+    <div class="subtitle">COMMUNITY LEADERBOARD</div>
+    <div class="barwrap"><div class="fill"></div><div class="barlab">78.4%</div><div class="barlab right">100%</div></div>
+    <table>
+      <tr class="hdr"><td>AGENT</td><td class="score" style="font-size:30px">SCORE</td></tr>
+      <tr class="r1"><td>OPINE-WORLD (OURS)</td><td class="score">78.4</td></tr>
+      <tr class="r2"><td>GPT-5.6 SOL (MAX)</td><td class="score">7.8</td></tr>
+      <tr class="r3"><td>OPUS 4.8 (HIGH)</td><td class="score">1.5</td></tr>
+      <tr class="r4"><td>GEMINI 3.1 PRO</td><td class="score">0.4</td></tr>
+      <tr class="r5"><td>GROK 4.20</td><td class="score">0.1</td></tr>
+    </table>
+    <div class="foot">* Current rank 1 solution wrt current verified and community leaderboard &middot; July 2026</div>
+  </div>
+
+</div>
+</body>
+</html>
