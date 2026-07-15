@@ -10,6 +10,8 @@ On ARC-AGI-3, a benchmark for skill-acquisition efficiency in which the object v
 
 > **Run artifacts archive:** <https://drive.google.com/drive/folders/1IiwYWG5jthunJGrM7-EpVmX_UcPty2LV>
 
+> **Blog:** https://david-courtis.github.io/opine-world/
+
 This repository is the open source behind the OPINE-World entry on the ARC Prize Community Leaderboard.
 
 ## How it works
