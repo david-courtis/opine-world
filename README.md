@@ -14,6 +14,13 @@ On ARC-AGI-3, a benchmark for skill-acquisition efficiency in which the object v
 
 This repository is the open source behind the OPINE-World entry on the ARC Prize Community Leaderboard.
 
+### Setup and Models
+This harness was run with Opus 4.8 (high), limited to a 500k context length, and 5 of the 20 games encountered some rate limiting issues that caused premature closure of their scorecards well below the 2000 action limit, while their trajectories were still very promising. Our true score lies somewhere between 92.1 (assuming those failed games scored the average of the others) and 78.4.
+
+We believe that with a stronger model (GPT-5.6 Sol) or a higher effort (xhigh or max effort), will deliver significant improvements on top of this.
+
+Even so, we still consider this preliminary result an impressive score, and hope that our uniqueness in modeling epistemic knowledge, where other current harnesses seem to take a purely worldcoder-adjacent approach, will be useful to the community.
+
 ## How it works
 
 OPINE-World runs one loop over a growing replay buffer of observed transitions.
