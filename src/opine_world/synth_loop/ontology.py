@@ -135,6 +135,21 @@ class Ontology:
     def committed_features(self) -> list[dict]:
         return list(self._committed_features)
 
+    def annotate_xi_ledger(self, forward_record) -> None:
+        """Attach the live model's forward record to each scored ledger
+        stratum, so the synthesizer can tell a representational confound
+        (mixed row the code already predicts: export the fluent it uses)
+        from a genuine unknown (the code fails there too)."""
+        ledger = (self._latest or {}).get("xi_candidate_ledger") or {}
+        for entry in ledger.get("strata") or []:
+            stratum = entry.get("stratum") or {}
+            try:
+                entry["model_forward"] = forward_record(
+                    stratum.get("type"), stratum.get("action_id"),
+                )
+            except Exception:
+                entry["model_forward"] = None
+
 
     def dump(self, path: Path) -> None:
         path = Path(path)

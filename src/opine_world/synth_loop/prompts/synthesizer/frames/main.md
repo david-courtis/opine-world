@@ -5,11 +5,7 @@ FILES:
 - game_engine.py: YOUR CODE. Edit this file. 
 - test_runner.py: Run: python %%TEST_RUNNER_PATH%%
 - replay_buffer.pkl: Ground truth (don't modify).
-- ontology_error.json: Optional previous spriteless ETA report, when
-  available. Read it if present to see which induced object types/actions
-  remain confounded.
-- spriteless_object_abstraction.json: Optional summary of your previous
-  `extract_objects(frame)` output, when available.
+%%ETA_ARTIFACT_LINES%%
 - animation_events.jsonl / animation_analysis.md: Optional intermediate
   animation evidence. The final settled frame is the verifier target, but
   tick frames often reveal the rule ordering.
@@ -27,6 +23,9 @@ FILES:
   level is solved or when synthesis has a final explanation for that level.
 - shared_model_updates.md: Engine-written summary of recent shared-doc edits.
 
+Python packages available: numpy, scipy, PIL, cv2, imageio, networkx,
+matplotlib, sympy, pandas, sklearn, skimage, shapely, z3, yaml.
+
 TASK: Implement
     transition_function(frame, action_id) -> next_frame
     reward_function(frame, action_id, next_frame) -> (reward: float, done: bool)
@@ -43,11 +42,8 @@ keeps the model simple and general; prefer rewriting major components when that
 de-janks the world model, removes special cases, or gives a cleaner object/state
 factorization.
 
-Actively compare competing hypotheses before locking in a mechanic. Read
-`ontology_error.json` and `spriteless_object_abstraction.json` when present:
-use the eta/confounding report to ask whether the model is missing a state
-variable, object split, relation, layer, context feature, or action-conditioned
-effect. Do not blindly add complexity; choose the factorization that best
+Actively compare competing hypotheses before locking in a mechanic.%%ETA_AUDIT_SENTENCE%%
+Do not blindly add complexity; choose the factorization that best
 explains the replay buffer and generalizes to unseen layouts. Do not launch
 your own general-purpose critic or adversarial subagent during ordinary
 synthesis. Independent critique is scheduled by the engine on its configured
@@ -126,8 +122,7 @@ DELIVERABLE CHECKLIST:
   of the visual objects your model recognizes. This is not another
   verifier target and should not trigger extra complexity; reuse the
   object parsing / Sprite hypotheses you already need for the transition
-  model. The engine uses it after your turn to build the spriteless ETA
-  matrix.
+  model. The planner uses it for click targeting and search.%%ETA_MATRIX_NOTE%%
 - Each object dict should include stable `name`, semantic `type`, `x`,
   `y`, `w`, `h`, optional `pixels`, optional `layer`, optional `mask`
   or `alpha_mask`, and optional `tags`. Names should stay stable for
@@ -235,6 +230,21 @@ CRITICAL RULES:
    the goal instead of synthesising one -- a cheat the test runner rejects;
    the goal must be derivable from observable state.
 
+ARC-AGI-3 GOAL CONTINUITY: the goal never fundamentally changes between
+levels of a game. A correct goal hypothesis is level-agnostic: it must
+account for every reward observed on every completed level. When revising
+the goal hypothesis you may only GENERALIZE it. The revised statement must
+still explain all previous levels' rewards while accommodating the new
+evidence. Never propose a goal that contradicts a previous level's observed
+reward, and never propose one specific to the current level. Prefer the most
+elegant, simple, level-agnostic statement. Do not overcomplicate or reach.
+Level-specific detail belongs in the instantiation of the goal (which
+objects fill which roles this level), not in the goal itself.
+Revisions are ADDITIONS and GENERALIZATIONS only: the core goal
+mechanic established by the first observed reward must remain in
+every later hypothesis. New evidence may widen its conditions or add
+clauses beside it, never replace or delete it.
+
 GOAL CONDITIONS HAVE PRECONDITIONS. Reaching the goal is rarely a
 single trivial predicate. Encode the joint precondition + configuration
 that distinguishes the moment reward was earned from the moments it
@@ -270,6 +280,40 @@ your transition_function on the observed buffer. If no state
 reachable from the buffer satisfies your goal predicate, your goal
 hypothesis is likely wrong and needs revising, even if every per-
 step transition and reward prediction matches the buffer.
+
+GENERALISATION, AND MECHANICS THE CURRENT STATE CANNOT EXPLAIN:
+Your model is graded on states it has never seen. Passing the replay is the
+floor, not the goal.
+
+NEVER HARDCODE OBSERVED STATE. Do not write a table mapping observed
+positions, configurations, or state signatures to their observed successors,
+and do not special-case a step by its index or exact board layout. A table
+transcribed from the buffer passes the verifier perfectly and is worthless:
+it answers only the questions already answered, and it is the same cheat as
+reading the buffer directly, just copied in by hand. Static level geometry a
+rule reads (a wall map, a sprite's cell pattern) is data. A map from a state
+to its next state is not; it is the rule you failed to find.
+
+SOME MECHANICS ARE GENUINELY NOT A FUNCTION OF THE CURRENT STATE: a patrol
+route, a replayed recording, a spawn order, a counter with no visible
+readout. The information exists in the game and is absent from the records
+you are given. Do not conclude such a mechanic is unmodelable and tabulate
+it. It is recoverable, because THE REPLAY BUFFER IS ONE CONTINUOUS,
+STRICTLY SEQUENTIAL PLAYTHROUGH: the verifier walks it in order and each
+step's before_state is the previous step's after_state. Your module may
+ACCUMULATE hidden state across calls and carry it forward, exactly as the
+real game does.
+
+GATE THAT ON CONTINUITY OR IT WILL BE WRONG. You are also called on states
+that do NOT continue your own last output: the planner explores hypothetical
+branches, and a level can reset. Keep a signature of the state you last
+returned; when the incoming state matches it your accumulated state applies,
+and when it does not, fall back to a conservative default (freeze the thing
+you were tracking) rather than applying stale history. Say so in a comment.
+
+An accumulator that reconstructs a hidden mechanic from the sequence
+generalises to any trajectory. A table of observed transitions does not. If
+you find yourself enumerating cases, you have stopped modelling.
 
 START: read context.txt, run tests, implement transition_function +
 reward_function + planner, iterate.

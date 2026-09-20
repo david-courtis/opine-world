@@ -353,6 +353,47 @@ if __name__ == "__main__":
 
 
 SYSTEM_PROMPT = load_prompt("analyzer/object_centric/system.md")
+_EPISTEMIC_CONSULTING = load_prompt(
+    "analyzer/object_centric/epistemic_consulting.txt"
+).rstrip("\n")
+_EPISTEMIC_ARTIFACTS_NOTE = (
+    ", plus, when staged, epistemic artifacts that tell you which objects "
+    "and interactions are under-explored (TOOLS.md documents whichever are "
+    "present)"
+)
+_EPISTEMIC_OBJECTS_NOTE = (
+    " When an epistemic artifact is staged, it surfaces such objects "
+    "(see TOOLS.md)."
+)
+
+
+def compose_system_prompt(
+    *, frames_only: bool, epistemic_visible: bool,
+    python_only: bool = False,
+) -> str:
+    """Fill the epistemic guidance tokens. The ablation arm must not receive
+    epistemic vocabulary anywhere, or the baseline is prompt-contaminated.
+
+    ``python_only`` is the natural-language ablation. It belongs here and not
+    only on the synthesizer: this agent is the one explicitly told to keep an
+    interpretable NL account of the world, so an NL ablation that leaves it
+    alone ablates nothing.
+    """
+    if frames_only:
+        base = SYSTEM_PROMPT_FRAMES_ONLY
+    else:
+        base = (
+            SYSTEM_PROMPT
+            .replace("%%EPISTEMIC_ARTIFACTS_NOTE%%",
+                     _EPISTEMIC_ARTIFACTS_NOTE if epistemic_visible else "")
+            .replace("%%EPISTEMIC_OBJECTS_NOTE%%",
+                     _EPISTEMIC_OBJECTS_NOTE if epistemic_visible else "")
+            .replace("%%EPISTEMIC_CONSULTING%%",
+                     _EPISTEMIC_CONSULTING if epistemic_visible else "")
+        )
+    if python_only:
+        base += "\n" + load_prompt("analyzer/shared/python_only.txt")
+    return base
 
 
 SYSTEM_PROMPT_FRAMES_ONLY = load_prompt("analyzer/frames/system.md")
@@ -397,10 +438,22 @@ def _is_subprocess_crash(out_txt: str, err_txt: str) -> bool:
     return any(m in blob for m in _SUBPROCESS_CRASH_MARKERS)
 
 
+def _is_stale_session(out_txt: str, err_txt: str) -> bool:
+    """A --resume/--continue session id that no longer exists, e.g. after a
+    checkpoint resume under a different CLAUDE_CONFIG_DIR. Retrying it can
+    never succeed; the retry must start a fresh session instead."""
+    blob = out_txt + "\n" + err_txt
+    return "No conversation found with session ID" in blob
+
+
 def _build_tools_readme(
     available_actions: list[int],
     has_world_model: bool,
     project_root: str,
+    stage_epistemic: bool = True,
+    stage_sigma: bool = False,
+    stage_label_audit: bool = True,
+    stage_goal_grounding: bool = False,
 ) -> str:
     actions_str = ", ".join(str(a) for a in sorted(available_actions))
     wm_section = load_prompt(
@@ -410,8 +463,34 @@ def _build_tools_readme(
     escape_section = load_prompt("analyzer/object_centric/tools_readme_escape.txt").replace(
         "%%ACTIONS_STR_SPACES%%", actions_str.replace(", ", " ")
     )
+    # The epistemic-signal section mirrors exactly what is staged in the
+    # workspace (the ablation arms differ ONLY here and in the staged files).
+    signal_parts: list[str] = []
+    if stage_epistemic:
+        signal_parts.append(
+            load_prompt("analyzer/object_centric/tools_readme_matrix.txt")
+        )
+    if stage_sigma:
+        signal_parts.append(
+            load_prompt("analyzer/object_centric/tools_readme_sigma.txt")
+        )
+    elif stage_epistemic:
+        signal_parts.append(
+            load_prompt("analyzer/shared/tools_readme_fluents.txt")
+        )
+    audit_section = (
+        load_prompt("analyzer/object_centric/tools_readme_audit.txt")
+        if stage_label_audit else ""
+    )
+    goal_section = (
+        load_prompt("analyzer/object_centric/tools_readme_goal.txt")
+        if stage_goal_grounding else ""
+    )
     return (
         load_prompt("analyzer/object_centric/tools_readme.md")
+        .replace("%%SIGNAL_SECTION%%", "\n".join(signal_parts))
+        .replace("%%AUDIT_SECTION%%", audit_section)
+        .replace("%%GOAL_SECTION%%", goal_section)
         .replace("%%WM_SECTION%%", wm_section)
         .replace("%%ESCAPE_SECTION%%", escape_section)
         .replace("%%ACTIONS_STR%%", actions_str)
@@ -419,12 +498,34 @@ def _build_tools_readme(
     )
 
 
+_FRAMES_ETA_SECTION = """**epistemic_matrix.json** -- when the synthesizer has exported
+  `extract_objects(frame)`, this is an ETA-style per-(induced object
+  type, action) priority matrix built from those recognized visual
+  objects. Treat it as advisory: the object abstraction is synthesized
+  from frames and can be wrong, but high-priority rows are good probes.
+
+**ontology_error.json** -- ETA / eta* diagnostic over the same induced
+  objects. High eta means the current object abstraction or context
+  features are still mixing incompatible effects. Low eta means the
+  synthesized abstraction is becoming Markov-like enough to trust more."""
+
+
 def _build_tools_readme_frames(
     available_actions: list[int],
     has_world_model: bool,
     project_root: str,
+    stage_epistemic: bool = True,
+    stage_goal_grounding: bool = False,
 ) -> str:
     """TOOLS.md for the frames-only regime (no type aliases, no view_sprite)."""
+    sections = [
+        _FRAMES_ETA_SECTION if stage_epistemic else "",
+        load_prompt("analyzer/shared/tools_readme_fluents.txt")
+        if stage_epistemic else "",
+        load_prompt("analyzer/object_centric/tools_readme_goal.txt")
+        if stage_goal_grounding else "",
+    ]
+    eta_section = "\n\n".join(s for s in sections if s)
     actions_str = ", ".join(str(a) for a in sorted(available_actions))
     wm_section = load_prompt(
         "analyzer/frames/tools_readme_wm.txt" if has_world_model
@@ -435,6 +536,7 @@ def _build_tools_readme_frames(
     ).replace("%%ACTIONS_STR_SPACES%%", actions_str.replace(", ", " "))
     return (
         load_prompt("analyzer/frames/tools_readme.md")
+        .replace("%%ETA_SECTION%%", eta_section)
         .replace("%%WM_SECTION%%", wm_section)
         .replace("%%ESCAPE_SECTION%%", escape_section)
         .replace("%%ACTIONS_STR%%", actions_str)
@@ -540,6 +642,52 @@ def _synth_handoff_from_status(synth_status_src: Path) -> str:
     )
 
 
+def _grounded_goal_from_artifact(artifact_path: Path) -> str:
+    """Prompt block from goal_requirements.json: the grounded goal hypothesis,
+    its accepted requirements, and the open coverage holes."""
+    try:
+        payload = json.loads(artifact_path.read_text())
+    except Exception:
+        return ""
+    prose = _clip_prompt_text(payload.get("goal_hypothesis"), 700)
+    if not prose:
+        return ""
+    lines = [f"Hypothesis: {prose}"]
+    accepted = [
+        r for r in (payload.get("requirements") or [])
+        if r.get("status") == "accepted"
+    ]
+    if accepted:
+        lines.append("Accepted requirements (each held at EVERY observed reward moment):")
+        for r in accepted:
+            sat = (
+                "already exhibited this level"
+                if r.get("satisfied_in_current_level")
+                else "NOT yet exhibited this level"
+            )
+            lines.append(f"  - {r.get('object')}: {r.get('mode')} [{sat}]")
+    holes = payload.get("injections") or []
+    if holes:
+        lines.append(
+            "Open coverage holes (goal-relevant configurations never yet "
+            "created; these keep eta high for their objects): "
+            + ", ".join(f"{h.get('object')}:{h.get('mode')}" for h in holes)
+        )
+    return (
+        "\n\nGROUNDED GOAL HYPOTHESIS (necessity-checked against all observed "
+        "rewards; a strong prior, not ground truth)\n"
+        "Distilled by the engine's goal-grounding pass from every reward "
+        "observed so far, including mid-animation reward-tick states. "
+        "Cross-check your own goal reasoning against it before inventing a "
+        "new rule. If a real-environment observation contradicts it, record "
+        "the contradiction in world_model.md so the next grounding round "
+        "revises it. Executable predicates: goal_requirements.json in the "
+        "workspace.\n\n"
+        + "\n".join(lines)
+        + "\n"
+    )
+
+
 def _setup_workspace(
     workspace_dir: Path,
     *,
@@ -559,12 +707,22 @@ def _setup_workspace(
     frames_only: bool = False,
     current_frame: list[list[int]] | None = None,
     game_over: bool = False,
+    stage_epistemic: bool = True,
+    stage_sigma: bool = False,
+    sigma_src: Path | None = None,
+    stage_label_audit: bool = True,
+    stage_goal_grounding: bool = False,
 ) -> bool:
     """Stage artifacts into workspace_dir and return has_wm.
 
     Under frames_only, current_state.json carries a raw frame field. If the
     synth has exported a spriteless object abstraction, epistemic/ontology
     diagnostics are still staged for the analyzer.
+
+    ``stage_epistemic`` / ``stage_sigma`` are the ablation-arm switches: they
+    control both which signal artifacts appear in the workspace and which
+    TOOLS.md sections describe them. Hiding actively unlinks a previously
+    staged artifact so a reused workspace cannot leak across arms.
     """
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
@@ -581,16 +739,32 @@ def _setup_workspace(
         if src.exists():
             shutil.copy2(src, dst)
 
+    def _unlink(dst: Path) -> None:
+        if dst.exists() or dst.is_symlink():
+            dst.unlink()
+
     rl = workspace_dir / "run_log.txt"
     _relative_symlink(run_log_src, rl)
 
     em = workspace_dir / "epistemic_matrix.json"
-    _relative_symlink(epistemic_matrix_src, em)
+    diag_names = ("ontology_error.json", "spriteless_object_abstraction.json")
+    if stage_epistemic:
+        _relative_symlink(epistemic_matrix_src, em)
+        for diag_name in diag_names:
+            _relative_symlink(
+                epistemic_matrix_src.parent / diag_name,
+                workspace_dir / diag_name,
+            )
+    else:
+        _unlink(em)
+        for diag_name in diag_names:
+            _unlink(workspace_dir / diag_name)
 
-    for diag_name in ("ontology_error.json", "spriteless_object_abstraction.json"):
-        src = epistemic_matrix_src.parent / diag_name
-        dst = workspace_dir / diag_name
-        _relative_symlink(src, dst)
+    sg = workspace_dir / "sigma.json"
+    if stage_sigma and sigma_src is not None:
+        _relative_symlink(sigma_src, sg)
+    else:
+        _unlink(sg)
 
     ss = workspace_dir / "synth_status.json"
     _relative_symlink(synth_status_src, ss)
@@ -603,6 +777,28 @@ def _setup_workspace(
         "animation_analysis.md",
     ):
         _relative_symlink(output_dir / name, workspace_dir / name)
+    la = workspace_dir / "label_audit.json"
+    if stage_label_audit:
+        _relative_symlink(output_dir / "label_audit.json", la)
+    else:
+        _unlink(la)
+    gr = workspace_dir / "goal_requirements.json"
+    goal_grounding_staged = (
+        stage_goal_grounding
+        and (output_dir / "goal_requirements.json").exists()
+    )
+    if goal_grounding_staged:
+        _relative_symlink(output_dir / "goal_requirements.json", gr)
+    else:
+        _unlink(gr)
+    mf = workspace_dir / "model_fluents.json"
+    if (
+        (stage_epistemic or stage_sigma)
+        and (output_dir / "model_fluents.json").exists()
+    ):
+        _relative_symlink(output_dir / "model_fluents.json", mf)
+    else:
+        _unlink(mf)
     for name in ("shared_model_updates.md", "world_model.md"):
         _writable_copy(output_dir / name, workspace_dir / name)
     for pattern in ("level_*_reasoning_log.md", "level_*_report.md"):
@@ -659,12 +855,18 @@ def _setup_workspace(
             available_actions=available_actions,
             has_world_model=has_wm,
             project_root=project_root,
+            stage_epistemic=stage_epistemic,
+            stage_goal_grounding=goal_grounding_staged,
         ))
     else:
         (workspace_dir / "TOOLS.md").write_text(_build_tools_readme(
             available_actions=available_actions,
             has_world_model=has_wm,
             project_root=project_root,
+            stage_epistemic=stage_epistemic,
+            stage_sigma=stage_sigma,
+            stage_label_audit=stage_label_audit,
+            stage_goal_grounding=goal_grounding_staged,
         ))
 
     tools_dir = workspace_dir / "tools"
@@ -750,7 +952,12 @@ def _read_plan(workspace_dir: Path) -> tuple[list, str]:
         data = json.loads(p.read_text())
     except Exception as e:
         return [], f"bad JSON: {type(e).__name__}: {e}"
-    plan_raw = data.get("plan")
+    if isinstance(data, list):
+        plan_raw = data
+    elif isinstance(data, dict):
+        plan_raw = data.get("plan")
+    else:
+        return [], f"next_actions.json is {type(data).__name__}, not a plan"
     if not isinstance(plan_raw, list):
         return [], f"missing/invalid 'plan' field: {plan_raw!r}"
 
@@ -816,7 +1023,8 @@ def _read_plan(workspace_dir: Path) -> tuple[list, str]:
 
     if not out:
         return [], "empty plan"
-    return out, str(data.get("reasoning", ""))[:200]
+    reasoning = data.get("reasoning", "") if isinstance(data, dict) else ""
+    return out, str(reasoning)[:200]
 
 
 def _validate_available_plan(
@@ -1014,6 +1222,12 @@ class AgenticConsumer:
         current_frame: list[list[int]] | None = None,
         game_over: bool = False,
         divergence_images: list[dict] | None = None,
+        stage_epistemic: bool = True,
+        stage_sigma: bool = False,
+        sigma_src: Path | None = None,
+        python_only: bool = False,
+        stage_label_audit: bool = True,
+        stage_goal_grounding: bool = False,
     ) -> dict[str, Any]:
         """Run one consumer call and return a result dict with plan, reasoning, duration_s, returncode, and reason."""
         self.call_count += 1
@@ -1035,6 +1249,11 @@ class AgenticConsumer:
             frames_only=frames_only,
             current_frame=current_frame,
             game_over=game_over,
+            stage_epistemic=stage_epistemic,
+            stage_sigma=stage_sigma,
+            sigma_src=sigma_src,
+            stage_label_audit=stage_label_audit,
+            stage_goal_grounding=stage_goal_grounding,
         )
 
         claude = shutil.which("claude")
@@ -1049,10 +1268,18 @@ class AgenticConsumer:
         )
 
         log_path = (workspace_dir.resolve().parent / "run_log.txt")
-        system_prompt = (
-            SYSTEM_PROMPT_FRAMES_ONLY if frames_only else SYSTEM_PROMPT
+        system_prompt = compose_system_prompt(
+            frames_only=frames_only,
+            epistemic_visible=stage_epistemic or stage_sigma,
+            python_only=python_only,
         )
         synth_handoff = _synth_handoff_from_status(synth_status_src)
+        grounded_goal = (
+            _grounded_goal_from_artifact(
+                synth_status_src.parent / "goal_requirements.json"
+            )
+            if stage_goal_grounding else ""
+        )
         user_prompt = f"""{system_prompt}
 
 WORKSPACE: {workspace_dir.resolve()}
@@ -1062,7 +1289,7 @@ CALL #{self.call_count}. STEP: {step}  LEVEL: {level + 1}  SCORE: {score}  AVAIL
 LEGAL ACTION CONTRACT: you may output and hypothesize only action ids listed in AVAILABLE ACTIONS. Any absent id does not exist for this game/state; do not propose, probe, or mention it as an available interaction.
 
 {user_task}
-{synth_handoff}
+{synth_handoff}{grounded_goal}
 
 {extra_user_prompt}"""
         user_prompt = sanitize_model_visible_text(user_prompt)
@@ -1186,6 +1413,7 @@ LEGAL ACTION CONTRACT: you may output and hypothesize only action ids listed in 
                         rc = wait_with_resource_monitor(
                             proc,
                             timeout_s=timeout_val,
+                            stream_path=stdout_path,
                         )
                     except subprocess.TimeoutExpired:
                         timed_out = True
@@ -1265,8 +1493,17 @@ LEGAL ACTION CONTRACT: you may output and hypothesize only action ids listed in 
         except Exception:
             out_blob = err_blob = ""
         crashed = _is_subprocess_crash(out_blob, err_blob)
-        if _is_context_overflow(out_blob, err_blob) or crashed:
+        stale = _is_stale_session(out_blob, err_blob)
+        if _is_context_overflow(out_blob, err_blob) or crashed or stale:
             self._needs_fresh_session = True
+        if stale:
+            self._claude_session_id = None
+            print(
+                f"  [agentic-consumer stale session] attempt={attempts} "
+                f"rc={rc} dur={duration_s:.1f}s; session id not found, "
+                f"dropping it so the retry starts fresh",
+                flush=True,
+            )
         if crashed:
             print(
                 f"  [agentic-consumer subprocess crash] attempt={attempts} "

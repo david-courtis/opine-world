@@ -1,0 +1,40 @@
+================================================================
+PYTHON-ONLY REPRESENTATION (no natural language)
+================================================================
+Everything you persist for the next agent must be Python. Not Python with
+prose around it: Python.
+
+- `game_engine.py`: NO comments, NO docstrings. The engine strips both
+  before the verifier runs and before the file is carried into the next
+  round, so anything you write in them is deleted and the next agent will
+  not see it. Name things so the code reads without them.
+- `world_model.md`, `synth_learnings.md`, `level_N_reasoning_log.md`,
+  `level_N_report.md`, `critique_response.md`: these keep their filenames
+  but their CONTENT must parse as Python and carries the same strip. Write
+  them as data: module-level assignments of dicts, lists, tuples, and
+  enums. A hypothesis is a dict with fields, a mechanic is a named
+  structure, a rejected alternative is an entry with the evidence that
+  killed it. An artifact that does not parse is discarded with an error,
+  and you lose that handoff entirely.
+- Your own turn output: no prose explanation, no summary paragraph. Answer
+  in Python.
+
+Example of the register you are being asked for, not a template to copy:
+
+    MECHANICS = {
+        "a5_on_gate": {
+            "precondition": "head_footprint_touches(state, tag='red')",
+            "effect": ["teleport_home", "clear_ghost", "toggle_hud_mode"],
+            "evidence_steps": [10, 11, 17, 42],
+            "status": "confirmed",
+        },
+    }
+    REJECTED = [
+        {"claim": "a5 works anywhere", "killed_by": [10], "why": "no_change"},
+    ]
+    OPEN_PROBES = [{"target": "ghost", "action": 5, "expect": "unknown"}]
+
+This constraint is the experiment. Do not work around it by encoding
+sentences as string values whose content is prose you would otherwise have
+written in Markdown: strings name predicates, objects, statuses, and
+evidence, not paragraphs.

@@ -226,6 +226,31 @@ def _dedupe_actions(actions: list[Any]) -> list[Any]:
     return out
 
 
+def _solid_pixel_offset(obj: dict) -> tuple[int, int] | None:
+    """Sprite-local (px, py) of the solid pixel nearest the sprite centre.
+
+    Games only accept clicks on non-transparent pixels, so a bbox centre
+    aimed at a hollow sprite silently misses.
+    """
+    pixels = obj.get("pixels")
+    if not isinstance(pixels, list) or not pixels:
+        return None
+    ch, cw = len(pixels) / 2.0, len(pixels[0]) / 2.0 if pixels[0] else 0.0
+    best: tuple[float, int, int] | None = None
+    for py, row in enumerate(pixels):
+        if not isinstance(row, list):
+            return None
+        for px, v in enumerate(row):
+            if not isinstance(v, int) or v < 0:
+                continue
+            d = max(abs(py + 0.5 - ch), abs(px + 0.5 - cw))
+            if best is None or d < best[0]:
+                best = (d, px, py)
+    if best is None:
+        return None
+    return best[1], best[2]
+
+
 def _object_click_targets(objects: list[dict], max_targets: int) -> list[dict]:
     out: list[dict] = []
     seen: set[tuple[int, int]] = set()
@@ -240,8 +265,17 @@ def _object_click_targets(objects: list[dict], max_targets: int) -> list[dict]:
             h = int(obj.get("display_h", obj.get("h", 1)))
         except (TypeError, ValueError):
             continue
-        cx = max(0, min(63, x + max(0, w // 2)))
-        cy = max(0, min(63, y + max(0, h // 2)))
+        solid = _solid_pixel_offset(obj)
+        if solid is not None:
+            gw = max(1, int(obj.get("w", 1) or 1))
+            scale = max(1, w // gw)
+            cx = x + solid[0] * scale + scale // 2
+            cy = y + solid[1] * scale + scale // 2
+        else:
+            cx = x + max(0, w // 2)
+            cy = y + max(0, h // 2)
+        cx = max(0, min(63, cx))
+        cy = max(0, min(63, cy))
         if (cx, cy) in seen:
             continue
         seen.add((cx, cy))
@@ -594,11 +628,33 @@ def _pixel_hash(pixels: Any) -> Any:
         return repr(pixels)
 
 
+def _rect_in_counter_mask(
+    obj: dict, mask: frozenset[tuple[int, int]] | None,
+) -> bool:
+    """Whether the object's display rectangle lies entirely inside the
+    validated move-counter mask (display-space (row, col) cells)."""
+    if not mask:
+        return False
+    try:
+        x = int(obj.get("display_x", obj.get("x", 0)))
+        y = int(obj.get("display_y", obj.get("y", 0)))
+        w = int(obj.get("display_w", obj.get("w", 1)) or 1)
+        h = int(obj.get("display_h", obj.get("h", 1)) or 1)
+    except Exception:
+        return False
+    for yy in range(y, y + h):
+        for xx in range(x, x + w):
+            if (yy, xx) not in mask:
+                return False
+    return True
+
+
 def object_state_signature(
     state: list[dict],
     *,
     scope_tags: set[str] | None = None,
     wall_tags: tuple[str, ...] = ("ihdgageizm",),
+    counter_mask: frozenset[tuple[int, int]] | None = None,
 ) -> dict:
     """Verifier-compatible object-state signature."""
 
@@ -612,9 +668,9 @@ def object_state_signature(
                 continue
         elif any(t in tags for t in wall_tags):
             continue
+        if _rect_in_counter_mask(obj, counter_mask):
+            continue
         try:
-            if int(obj.get("w", 0)) >= 64:
-                continue
             x = int(obj.get("x", 0))
             y = int(obj.get("y", 0))
         except Exception:
@@ -635,9 +691,12 @@ def object_states_equal(
     actual: list[dict],
     *,
     scope_tags: set[str] | None = None,
+    counter_mask: frozenset[tuple[int, int]] | None = None,
 ) -> bool:
     """Return True when object states match under the verifier signature."""
 
     return object_state_signature(
-        predicted, scope_tags=scope_tags
-    ) == object_state_signature(actual, scope_tags=scope_tags)
+        predicted, scope_tags=scope_tags, counter_mask=counter_mask
+    ) == object_state_signature(
+        actual, scope_tags=scope_tags, counter_mask=counter_mask
+    )

@@ -2,6 +2,10 @@
 
 You can `Read`, `Grep`, `Bash`, and `Task` over everything in this directory.
 
+Python packages available to Bash: numpy, scipy, PIL, cv2, imageio, networkx,
+matplotlib, sympy, pandas, sklearn, skimage, shapely, z3, yaml, requests,
+tqdm, rich.
+
 **run_log.txt** -- monotonic structured log. Section markers:
   `[STEP N]` ... `[/STEP N]`        per env step
   `[SYNTHESIS step=N run=K]`         synthesis events
@@ -35,16 +39,7 @@ You can `Read`, `Grep`, `Bash`, and `Task` over everything in this directory.
   dict has before_frame, action_id, after_frame, diff_text, reward,
   done, level (and click_x/click_y on click steps). Pickle, not JSON.
 
-**epistemic_matrix.json** -- when the synthesizer has exported
-  `extract_objects(frame)`, this is an ETA-style per-(induced object
-  type, action) priority matrix built from those recognized visual
-  objects. Treat it as advisory: the object abstraction is synthesized
-  from frames and can be wrong, but high-priority rows are good probes.
-
-**ontology_error.json** -- ETA / eta* diagnostic over the same induced
-  objects. High eta means the current object abstraction or context
-  features are still mixing incompatible effects. Low eta means the
-  synthesized abstraction is becoming Markov-like enough to trust more.
+%%ETA_SECTION%%
 
 **spriteless_object_abstraction.json** -- small summary of the latest
   synth-provided `extract_objects(frame)` pass: whether it ran, object

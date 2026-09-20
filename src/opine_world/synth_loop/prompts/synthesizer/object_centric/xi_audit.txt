@@ -1,0 +1,58 @@
+================================================================
+ξ-REFINEMENT AUDIT (optional, available once η measure has run)
+================================================================
+Read `ontology_error.json` and the xi candidate ledger when present:
+use the eta/confounding report to ask whether the model is missing a
+state variable, object split, relation, layer, context feature, or
+action-conditioned effect.
+The engine measures ontology error η = how confounded the current
+object factorisation is. Per-(type, action, context) strata land in
+`ontology_error.json` (symlinked into this workspace), and
+`latest.xi_candidate_ledger.strata` holds one entry per scored worst
+stratum, each with a `candidates` list of mechanically-enumerated
+ContextFeature candidates whose acceptance would reduce η there. Each
+candidate carries: feature descriptor, η_old, η_new, η_reduction,
+n_substrata, identified_substrata, accepted. Iterate
+`ledger["strata"]`, then each stratum's `["candidates"]`. When present,
+a stratum's `model_forward` field ({n_pred, k_pred} or null) is YOUR
+model's forward record on that stratum: k_pred == n_pred on a
+confounded stratum means your code already predicts it exactly -- the
+confound is representational, so register the fluent your code
+branches on (see DECLARED FLUENTS) instead of hunting a vocabulary
+feature. A poor record means a genuine unknown: fix the rule.
+
+Acceptance criterion (verifier-applied):
+  η_reduction ≥ 0.05  AND  identified_substrata ≥ 1
+
+If you find one or more ACCEPTED candidates that name a genuine
+conditioning feature your transition_function would need to read,
+commit them by writing ``xi_updates.json`` to this workspace:
+
+  {
+    "add": [
+      {"kind": "target_field", "field": "rotation"},
+      {"kind": "neighbour_at_offset", "dx": 1, "dy": 0}
+    ],
+    "rationale": "<one sentence on why these features matter>"
+  }
+
+Known ``kind`` values and required parameters:
+  target_field            field: str  (e.g. rotation, visible, scale,
+                                       mirror_ud, mirror_lr, pixels_hash)
+  neighbour_at_offset     dx: int, dy: int  (within {-1,0,1}^2)
+  neighbourhood_radius    r: int   (widen the base 3×3 window)
+  click_offset            (no params; for action 6 only)
+
+ENGINE-SIDE VERIFIER: every feature you write is RE-SCORED by the
+engine after you exit. A proposal is committed iff it produces
+Δη ≥ 0.05 with ≥ 1 identified sub-stratum on at least one of the
+current top-3 worst strata, same rule as the ledger. Features that
+look plausible to you but don't survive verification are silently
+rejected and logged. Pick features that appear with ``accepted: true``
+in the ledger AND that you can articulate a mechanic-level reason for.
+
+Features are MONOTONICALLY ACCUMULATED. The verifier guarantees no
+commitment can REGRESS η. If no candidate looks meaningful, do not
+write the file. The pre-ledger case (no η measure yet) is a no-op:
+xi_updates.json is ignored without an η measurement to verify against.
+

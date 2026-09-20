@@ -903,13 +903,23 @@ def _xi_feature_value(
         return f"R{r}=" + ",".join(sorted(nbrs))
 
     if kind == "click_offset":
+        # Offsets are only meaningful inside the object, where they encode
+        # sub-object click semantics with a codomain bounded by the sprite
+        # size. An unbounded off-object offset is a near-unique fingerprint
+        # per (object, click) pair and shreds every stratum it touches.
         cx = transition.get("click_x")
         cy = transition.get("click_y")
         if cx is None or cy is None:
             return "cli=none"
         tx = int(target_obj.get("display_x", target_obj.get("x", 0)))
         ty = int(target_obj.get("display_y", target_obj.get("y", 0)))
-        return f"cli=({int(cx) - tx},{int(cy) - ty})"
+        tw = int(target_obj.get("display_w", target_obj.get("w", 1)) or 1)
+        th = int(target_obj.get("display_h", target_obj.get("h", 1)) or 1)
+        dx = int(cx) - tx
+        dy = int(cy) - ty
+        if 0 <= dx < tw and 0 <= dy < th:
+            return f"cli=({dx},{dy})"
+        return "cli=out"
 
     return f"{kind}=?"
 

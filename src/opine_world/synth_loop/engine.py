@@ -19,6 +19,14 @@ from . import aliases as aliases_mod
 from .click_utils import action_id_of, action_label, is_click
 from .domain_adapter import DomainAdapter
 from .epistemic import dump_epistemic_matrix
+from .fluents import harvest_and_dispose
+from .goal_grounding import (
+    goal_mode_injections,
+    ground_requirements,
+    parse_raw_requirements,
+)
+from .label_audit import label_audit
+from .nl_ablation import enforce_python_artifact, strip_natural_language
 from .ontology import Ontology
 from .planner import (
     PlanResult,
@@ -30,6 +38,13 @@ from .planner import (
 )
 from .prompt_safety import sanitize_model_visible_text
 from .runlog import RunLog
+from .sigma import (
+    MODEL_ERROR,
+    SigmaState,
+    compute_cai,
+    dump_sigma,
+    trace_record_from,
+)
 from .spriteless_eta import refresh_spriteless_diagnostics
 
 
@@ -113,6 +128,11 @@ class TransitionRecord:
     level: int
     before_frame: list[list[int]] | None = None
     after_frame: list[list[int]] | None = None
+    # Mid-animation tick states, kept only on reward transitions. The ARC-3
+    # reward transition sweeps to the next level in the same step, so the
+    # completed configuration exists only in these ticks, never in
+    # before_state or after_state.
+    intermediate_states: list[list[dict]] | None = None
 
 
 class EngineLogger:
@@ -231,6 +251,56 @@ class EngineConfig:
     planner_require_completed_verification: bool = True
     planner_verify_max_levels: int = 0
 
+    # Σ(o) per-object epistemic substrate (docs/sigma_core_implementation_plan.md).
+    # Computed in every sprite-mode run; the visibility flags are the ablation-arm
+    # switches (compute-everywhere, show-selectively). Frames-only runs skip Σ:
+    # per-object identity is extractor-inferred there and too unstable.
+    sigma_visible_to_analyzer: bool = True
+    epistemic_visible_to_analyzer: bool = True
+    # Systems-level ablation: no epistemic machinery at all. Skips sigma and
+    # matrix computation, ontology measurement and the ξ ledger, the label
+    # audit, and goal grounding, and removes their artifacts and prompt
+    # sections from both agents' workspaces.
+    ablate_epistemic: bool = False
+    sigma_alpha: float = 0.9
+    sigma_lp_window: int = 5
+    sigma_m: int = 2
+    sigma_eps: float = 0.3
+    sigma_omega: float = 0.5
+    sigma_goal_grounding_enabled: bool = True
+    sigma_goal_cap: int = 3
+    # Harvest the model's declared FLUENTS registry each measure cadence and
+    # absorb admitted refinements into sigma; adds the declaration contract
+    # to the synthesis prompt.
+    sigma_fluent_harvest: bool = True
+    # Event-gated epistemic briefing in the analyzer prompt: fires on new
+    # level, after a model repair, and on evidence stall; scarce by design
+    # so it never becomes wallpaper.
+    sigma_briefing: bool = True
+    sigma_briefing_stall_steps: int = 12
+    sigma_briefing_cooldown: int = 8
+    # Three-state U_c: enough correct forward predictions resolve a mixed
+    # cell as a representational confound instead of an epistemic unknown.
+    sigma_model_resolved: bool = True
+
+    # Engine-scripted click-all warmup at game start (sprite mode). Off by
+    # default so sprite-mode action selection is analyzer-driven from step 0,
+    # matching frames-only runs.
+    warmup_click_all: bool = False
+
+    # Natural-language ablation. Removes the NL intermediate representation
+    # (code comments, docstrings, and the prose handoff artifacts) while
+    # leaving the dual-agent architecture intact, so the comparison is not
+    # confounded by removing an agent.
+    ablate_natural_language: bool = False
+
+    # Fixed-trajectory arm. When set, actions come verbatim from this file
+    # and no acting agent runs, so every arm sees an identical replay buffer
+    # and only synthesis differs. Actions are handed out in batches; a
+    # drained batch is the plan boundary the CEGIS gate counts.
+    action_script: str | Path | None = None
+    action_script_batch: int = 6
+
 
 class SynthesisEngine:
     """Domain-agnostic synthesis engine: explore, record transitions, and synthesize a world model."""
@@ -246,6 +316,7 @@ class SynthesisEngine:
         self.config = config or EngineConfig()
 
         self.output_dir = Path(self.config.output_dir).resolve()
+        self._acquire_run_lock()
         self.logger = EngineLogger(self.output_dir)
         self.run_log = RunLog(self.output_dir / "run_log.txt")
         self.frames_dir = self.output_dir / "frames"
@@ -256,30 +327,56 @@ class SynthesisEngine:
                 actions_path.write_text("")
         except Exception:
             pass
-        try:
-            import numpy as _np
-            em_seed = self.output_dir / "epistemic_matrix.json"
-            if not em_seed.exists():
-                dump_epistemic_matrix(
-                    [], em_seed,
-                    alpha_0=self.config.epistemic_alpha_0,
-                    beta_0=self.config.epistemic_beta_0,
-                    kappa=self.config.epistemic_kappa,
-                    sort_by=self.config.epistemic_sort_by,
-                    rng=_np.random.default_rng(self.config.seed),
-                )
-        except Exception:
-            pass
+        if not self.config.ablate_epistemic:
+            try:
+                import numpy as _np
+                em_seed = self.output_dir / "epistemic_matrix.json"
+                if not em_seed.exists():
+                    dump_epistemic_matrix(
+                        [], em_seed,
+                        alpha_0=self.config.epistemic_alpha_0,
+                        beta_0=self.config.epistemic_beta_0,
+                        kappa=self.config.epistemic_kappa,
+                        sort_by=self.config.epistemic_sort_by,
+                        rng=_np.random.default_rng(self.config.seed),
+                    )
+            except Exception:
+                pass
         self.ontology = Ontology(
             alpha_0=self.config.epistemic_alpha_0,
             kappa=self.config.epistemic_kappa,
         )
-        try:
-            ont_seed = self.output_dir / "ontology_error.json"
-            if not ont_seed.exists():
-                self.ontology.dump(ont_seed)
-        except Exception:
-            pass
+        if not self.config.ablate_epistemic:
+            try:
+                ont_seed = self.output_dir / "ontology_error.json"
+                if not ont_seed.exists():
+                    self.ontology.dump(ont_seed)
+            except Exception:
+                pass
+
+        self._sigma_params = dict(
+            alpha=self.config.sigma_alpha,
+            alpha_0=self.config.epistemic_alpha_0,
+            lp_window=self.config.sigma_lp_window,
+            m_min=self.config.sigma_m,
+            eps=self.config.sigma_eps,
+            goal_cap=self.config.sigma_goal_cap,
+            omega=self.config.sigma_omega,
+            model_resolved=self.config.sigma_model_resolved,
+        )
+        self.sigma = SigmaState(**self._sigma_params)
+        # Frames-only: object-level replay from the synth's extract_objects,
+        # refreshed by _refresh_spriteless_diagnostics. It stands in for the
+        # sprite records everywhere the epistemic layer reads transitions.
+        self._spriteless_replay: list[dict] = []
+        self._goal_injections: list[dict] = []
+        if not self.config.frames_only and not self.config.ablate_epistemic:
+            try:
+                sg_seed = self.output_dir / "sigma.json"
+                if not sg_seed.exists():
+                    dump_sigma(self.sigma, sg_seed)
+            except Exception:
+                pass
 
         try:
             ss_seed = self.output_dir / "synth_status.json"
@@ -296,12 +393,14 @@ class SynthesisEngine:
                         "animation_findings": "",
                         "shared_model_updates": "",
                         "handoff_files": {
-                            "world_model": "world_model.md",
-                            "shared_model_updates": "shared_model_updates.md",
+                            "world_model": self.SHARED_WORLD_MODEL_FILENAME,
+                            "shared_model_updates": (
+                                self.SHARED_MODEL_UPDATES_FILENAME),
                             "current_level_reasoning_log": (
-                                "level_1_reasoning_log.md"
+                                self._level_reasoning_filename(0)
                             ),
-                            "current_level_report": "level_1_report.md",
+                            "current_level_report": (
+                                self._level_report_filename(0)),
                         },
                     }, indent=2)
                 )
@@ -347,6 +446,16 @@ class SynthesisEngine:
 
         self._warmup_queue: list[dict] = []
 
+        # Fixed-trajectory arm: the whole action sequence, the read cursor,
+        # and the in-flight batch. The batch is the CEGIS plan boundary, so
+        # it must drain before _should_synthesize opens.
+        self._script_actions: list[Any] = []
+        self._script_meta: list[dict] = []
+        self._script_pos: int = 0
+        self._script_batch: list[Any] = []
+        if self.config.action_script:
+            self._load_action_script(self.config.action_script)
+
         self._consecutive_failed_syntheses: int = 0
 
         self._game_over_streak: int = 0
@@ -363,6 +472,11 @@ class SynthesisEngine:
         self._div_reward_model = None
         self._div_model_round: int = -1
         self._div_mask = frozenset()
+        # The live model's prediction for the just-executed transition,
+        # captured by _record_execution_divergence BEFORE any repair can run
+        # (test-then-train): a state list, sigma.MODEL_ERROR, or None when no
+        # model was invoked. Consumed by the Σ prequential update each step.
+        self._last_pred_state: Any = None
 
         self._planner_queue: list[Any] = []
         self._planner_trace: list[dict] = []
@@ -417,6 +531,32 @@ class SynthesisEngine:
 
         self._stopped_for_snapshot: bool = False
         self._snapshot_completed_step: int | None = None
+
+    def _acquire_run_lock(self) -> None:
+        """Refuse to run two engines on one output dir. Concurrent writers
+        interleave run_log/checkpoint writes into silent corruption, so a
+        live lock is a hard error, never a warning."""
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        lock = self.output_dir / ".engine.lock"
+        if lock.exists():
+            try:
+                other = int(lock.read_text().strip())
+            except Exception:
+                other = None
+            if other is not None and other != os.getpid():
+                try:
+                    os.kill(other, 0)
+                    alive = True
+                except PermissionError:
+                    alive = True
+                except OSError:
+                    alive = False
+                if alive:
+                    raise RuntimeError(
+                        f"output dir {self.output_dir} is owned by live "
+                        f"engine pid {other}; refusing to double-run"
+                    )
+        lock.write_text(str(os.getpid()))
 
     def run(self) -> dict:
         """Run the full engine loop until game won or budget exhausted. Returns a summary dict."""
@@ -510,7 +650,7 @@ class SynthesisEngine:
                     "initial_state": state,
                 })
             self._record_initial_frame()
-            if not self.config.frames_only:
+            if not self.config.frames_only and self.config.warmup_click_all:
                 self._queue_click_all_warmup(state, actions, start_step)
         else:
             state = self.env.extract_state()
@@ -548,6 +688,18 @@ class SynthesisEngine:
 
             if self.game_won:
                 self.logger.log("DONE", "Game won!")
+                break
+
+            if (
+                self._script_actions
+                and not self._script_batch
+                and self._script_pos >= len(self._script_actions)
+            ):
+                self.logger.log(
+                    "SCRIPT",
+                    f"action script exhausted after {self._script_pos} "
+                    "action(s); stopping",
+                )
                 break
 
             if self._pending_synthesis_step is not None:
@@ -588,6 +740,9 @@ class SynthesisEngine:
                 break
 
             action = self._choose_action(state, actions, step)
+            if action is None and self._script_actions:
+                self.logger.log("SCRIPT", "action script exhausted; stopping")
+                break
             action_id = action_id_of(action)
             pre_frame = None
             try:
@@ -606,7 +761,20 @@ class SynthesisEngine:
             new_state, reward, done = self.env.step(action)
             state = self.env.extract_state()
 
+            if self._script_actions:
+                self._check_script_replay(step, level_before, float(reward))
+
             level_after = self.env.get_level_index()
+            # A first-visit level advance lands on a hand-designed entry state
+            # no model could have predicted (its cache cannot exist yet), so
+            # it must not count as prequential evidence against any object.
+            # Repeat visits stay scored: the cache exists and the model is
+            # expected to use it.
+            first_level_visit = (
+                level_after > level_before
+                and level_after not in self.level_states
+                and level_after not in self.level_frames
+            )
             if self.config.frames_only:
                 diff = "(frames_only)"
             else:
@@ -640,6 +808,17 @@ class SynthesisEngine:
                     except Exception:
                         after_frame_serialised = None
 
+            intermediate_states = None
+            if not self.config.frames_only and float(reward or 0.0) > 0.0:
+                try:
+                    ticks = getattr(
+                        self.env, "_last_intermediate_states", None
+                    )
+                    if ticks:
+                        intermediate_states = copy.deepcopy(ticks)
+                except Exception:
+                    intermediate_states = None
+
             transition = TransitionRecord(
                 before_state=before_state if not self.config.frames_only else [],
                 action_id=action_id,
@@ -652,10 +831,13 @@ class SynthesisEngine:
                 level=level_before,
                 before_frame=before_frame_serialised,
                 after_frame=after_frame_serialised,
+                intermediate_states=intermediate_states,
             )
             if is_click(action):
                 transition.click_x = int(action["x"])
                 transition.click_y = int(action["y"])
+                grid = getattr(self.env, "_last_click_grid", None)
+                transition.click_grid = tuple(grid) if grid is not None else None
             self.replay_buffer.append(transition)
 
             self._record_step_frame(step, transition)
@@ -741,6 +923,8 @@ class SynthesisEngine:
 
             if self.config.frames_only:
                 self._refresh_spriteless_diagnostics(step, reason="step")
+            elif self.config.ablate_epistemic:
+                pass
             else:
                 try:
                     dump_epistemic_matrix(
@@ -756,8 +940,72 @@ class SynthesisEngine:
                     self.logger.log(
                         "EPISTEMIC", f"dump failed: {type(exc).__name__}: {exc}"
                     )
+                try:
+                    sig_tr = {
+                        "before_state": transition.before_state,
+                        "after_state": transition.after_state,
+                        "action_id": transition.action_id,
+                        "reward": transition.reward,
+                        "done": transition.done,
+                        "timestep": transition.timestep,
+                        "level": transition.level,
+                    }
+                    if is_click(action):
+                        sig_tr["click_x"] = transition.click_x
+                        sig_tr["click_y"] = transition.click_y
+                        sig_tr["click_grid"] = getattr(transition, "click_grid", None)
+                    self.sigma.observe(
+                        sig_tr,
+                        available_actions=actions,
+                        committed_features=(
+                            self.ontology.committed_features()
+                        ),
+                        step=step,
+                        predicted_state=(
+                            None if first_level_visit
+                            else self._last_pred_state
+                        ),
+                        counter_mask=getattr(self, "_div_mask", None),
+                    )
+                    cai_interval = max(
+                        1, int(self.config.ontology_measure_interval)
+                    )
+                    if step % cai_interval == 0:
+                        serialized = self._serialize_transitions()
+                        committed = self.ontology.committed_features()
+                        cai_map = compute_cai(
+                            serialized, committed_features=committed,
+                        )
+                        self.sigma.set_cai(cai_map)
+                        try:
+                            self._run_label_audit(
+                                step, serialized, committed, cai_map,
+                            )
+                        except Exception as exc:
+                            self.logger.log(
+                                "LABEL_AUDIT",
+                                f"failed: {type(exc).__name__}: {exc}",
+                            )
+                        if self.config.sigma_fluent_harvest:
+                            self._harvest_model_fluents(serialized, committed)
+                    payload = dump_sigma(
+                        self.sigma,
+                        self.output_dir / "sigma.json",
+                        aliases=self.type_aliases,
+                    )
+                    with open(
+                        self.output_dir / "sigma_trace.jsonl", "a"
+                    ) as f:
+                        f.write(json.dumps(
+                            trace_record_from(payload, step=step),
+                            default=str,
+                        ) + "\n")
+                except Exception as exc:
+                    self.logger.log(
+                        "SIGMA", f"update failed: {type(exc).__name__}: {exc}"
+                    )
 
-            if not self.config.frames_only:
+            if not self.config.frames_only and not self.config.ablate_epistemic:
                 try:
                     interval = max(1, int(self.config.ontology_measure_interval))
                     if step == start_step or (step % interval == 0):
@@ -766,6 +1014,10 @@ class SynthesisEngine:
                             self._serialize_transitions(),
                             aliases=self.type_aliases or None,
                         )
+                        if self.config.sigma_fluent_harvest:
+                            self.ontology.annotate_xi_ledger(
+                                self.sigma.forward_record
+                            )
                         self.ontology.dump(
                             self.output_dir / "ontology_error.json"
                         )
@@ -864,6 +1116,7 @@ class SynthesisEngine:
                     current_level=self.current_level,
                     completed_level=level_before,
                 )
+                self._maybe_ground_goal(step, reason="level_advance")
 
             if hasattr(self.env, 'is_game_won') and self.env.is_game_won():
                 self.game_won = True
@@ -913,6 +1166,9 @@ class SynthesisEngine:
                     f"{self.config.stop_and_snapshot_at_step})",
                 )
                 break
+
+        if self._script_actions:
+            self._log_script_completion()
 
         if (
             not self._stopped_for_snapshot
@@ -1021,15 +1277,303 @@ class SynthesisEngine:
             f" (steps {start_step}..{start_step + len(targets) - 1})",
         )
 
+    def _strip_nl_code(self, source: str, *, where: str) -> str:
+        """Remove comments and docstrings from model code under the NL
+        ablation. Logged rather than silent, because the count is the
+        evidence that the arm actually bound."""
+        result = strip_natural_language(source)
+        if result.error:
+            self.logger.log(
+                "NL_ABLATION", f"{where}: strip incomplete: {result.error}",
+            )
+        if result.stripped_anything:
+            self.logger.log(
+                "NL_ABLATION",
+                f"{where}: stripped {result.n_comments} comment(s), "
+                f"{result.n_docstrings} docstring(s)",
+            )
+        return result.source
+
+    # Files the ENGINE or the harness owns. Everything else the agent leaves
+    # behind must be Python under this arm.
+    #
+    # The refusal sweep runs over the run's output directory as well as the
+    # workspace, and the engine's own observability files live there. They are
+    # environment interface rather than agent representation, so this arm must
+    # leave them alone: deleting them truncates the run record to whatever was
+    # written after the most recent synthesis round, and because the refusal is
+    # logged to the file it deletes, the compliance evidence erases itself. The
+    # damage is also one-sided, since only the treatment arm runs this sweep,
+    # which biases any log-derived comparison between arms.
+    _NL_ARM_ALLOWED_SUFFIXES = (".py", ".pkl", ".json", ".jsonl", ".png")
+    _NL_ARM_ENGINE_OWNED = frozenset({
+        "engine.log", "run_log.txt", "launch.log", ".engine.lock",
+    })
+    _NL_ARM_ALLOWED_NAMES = frozenset({
+        "context.txt", "claude_prompt.txt", "claude_stderr.txt",
+        "critique_prompt.txt", "critique_stderr.txt", "test_runner_output.txt",
+        "requires_critique_response.flag",
+    }) | _NL_ARM_ENGINE_OWNED
+
+    # Communication channels the arm deliberately leaves in natural language.
+    # Watched, not blocked: world-model content appearing here is the result.
+    _COMMUNICATION_ARTIFACTS = (
+        "critique.md", "last_critique.md", "critique_response.md",
+        "consumer_notes.md", "analyzer_notes.md",
+    )
+
+    def _measure_wm_in_communication(self, base_dir: Path) -> None:
+        """Report world-model content showing up in communication channels.
+
+        The arm forbids a natural-language world model, not natural language.
+        If the agents respond by reconstructing the model inside the channels
+        that stayed prose, that is the finding the ablation exists to produce,
+        so it is measured rather than suppressed. The proxy is deliberately
+        crude and its crudeness is stated: long prose in a channel that is
+        normally terse, carrying the vocabulary of a mechanics account.
+        """
+        if not self.config.ablate_natural_language:
+            return
+        markers = (
+            "mechanic", "hypothesis", "transition", "when the player",
+            "if the", "rule:", "object", "level", "precondition",
+        )
+        report: dict[str, dict] = {}
+        for name in self._COMMUNICATION_ARTIFACTS:
+            path = base_dir / name
+            try:
+                if not path.is_file():
+                    continue
+                text = path.read_text(errors="ignore")
+            except OSError:
+                continue
+            words = len(text.split())
+            hits = sum(text.lower().count(m) for m in markers)
+            report[name] = {"words": words, "mechanics_terms": hits}
+        if not report:
+            return
+        try:
+            (self.output_dir / "nl_communication_watch.json").write_text(
+                json.dumps(report, indent=2, sort_keys=True)
+            )
+        except OSError:
+            pass
+        loud = {k: v for k, v in report.items()
+                if v["words"] > 400 and v["mechanics_terms"] > 20}
+        if loud:
+            self.logger.log(
+                "NL_ABLATION",
+                "world-model-like prose in communication channels: "
+                + ", ".join(f"{k}({v['words']}w/{v['mechanics_terms']}t)"
+                            for k, v in sorted(loud.items())),
+            )
+
+    def _refuse_non_python_artifacts(self, ws_dir: Path) -> None:
+        """Remove agent-authored non-Python files under the NL ablation.
+
+        The arm's claim is that no natural-language representation persists
+        between agent invocations. A prose file the agent invents on its own
+        would be exactly such a representation, so it is refused rather than
+        carried forward, and the refusal is logged so non-compliance is
+        measurable instead of silent.
+        """
+        refused: list[str] = []
+        for path in ws_dir.iterdir():
+            try:
+                if path.is_dir() or path.is_symlink():
+                    continue
+                if path.name in self._NL_ARM_ALLOWED_NAMES:
+                    continue
+                if path.name in self._COMMUNICATION_ARTIFACTS:
+                    continue
+                if path.suffix in self._NL_ARM_ALLOWED_SUFFIXES:
+                    continue
+                path.unlink()
+                refused.append(path.name)
+            except Exception:
+                continue
+        if refused:
+            self.logger.log(
+                "NL_ABLATION",
+                "refused non-Python artifact(s): " + ", ".join(sorted(refused)),
+            )
+
+    def _enforce_python_artifacts(self, base_dir: Path) -> None:
+        """Rewrite the persisted handoff artifacts as Python under the NL
+        ablation. Filenames are unchanged across arms so that staging,
+        snapshotting, and the handoff run identical code paths and only the
+        content is manipulated."""
+        targets = list(self._iter_shared_model_artifacts(base_dir))
+        for extra in (self._doc("synth_learnings"), "critique_response.md"):
+            p = base_dir / extra
+            if p.exists() and not p.is_symlink():
+                targets.append(p)
+        for path in targets:
+            try:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                text = path.read_text()
+                enforced, error = enforce_python_artifact(text)
+                if error:
+                    self.logger.log(
+                        "NL_ABLATION",
+                        f"{path.name}: {error}; discarding the handoff",
+                    )
+                    path.write_text(
+                        f"ARTIFACT_REJECTED = {error!r}\n"
+                    )
+                elif enforced != text:
+                    path.write_text(enforced)
+            except Exception as exc:
+                self.logger.log(
+                    "NL_ABLATION",
+                    f"{path.name}: enforce failed: "
+                    f"{type(exc).__name__}: {exc}",
+                )
+
+    def _load_action_script(self, path: str | Path) -> None:
+        """Load a fixed action trajectory from a prior run's actions.jsonl.
+
+        Each line needs ``action_id``; clicks additionally need display-space
+        coordinates under ``x``/``y`` or ``click_x``/``click_y``. ``level``
+        and ``reward``, when present, are kept as the replay contract the
+        run is checked against step by step.
+        """
+        src = Path(path)
+        actions: list[Any] = []
+        meta: list[dict] = []
+        with open(src) as f:
+            for lineno, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                if "action_id" not in rec:
+                    raise ValueError(
+                        f"{src}:{lineno}: action script line has no action_id"
+                    )
+                aid = int(rec["action_id"])
+                if aid == 6:
+                    cx = rec.get("x", rec.get("click_x"))
+                    cy = rec.get("y", rec.get("click_y"))
+                    if cx is None or cy is None:
+                        raise ValueError(
+                            f"{src}:{lineno}: ACTION6 without click "
+                            "coordinates; the trajectory cannot be replayed"
+                        )
+                    actions.append(
+                        {"action_id": 6, "x": int(cx), "y": int(cy)}
+                    )
+                else:
+                    actions.append(aid)
+                meta.append({
+                    "level": rec.get("level"),
+                    "reward": rec.get("reward"),
+                })
+        if not actions:
+            raise ValueError(f"{src}: action script is empty")
+        self._script_actions = actions
+        self._script_meta = meta
+        self.logger.log(
+            "SCRIPT",
+            f"loaded {len(actions)} scripted action(s) from {src} "
+            f"(batch={self.config.action_script_batch})",
+        )
+
+    def _log_script_completion(self) -> None:
+        """Record how much of the trajectory actually replayed.
+
+        play.py clamps max_actions to the trajectory length, so the loop ends
+        by exhausting its range and the in-loop exhaustion branch never runs.
+        Without this the artifact carries no positive evidence that the whole
+        trajectory replayed, and a truncated arm looks like a complete one.
+        """
+        n_done = self._script_pos - len(self._script_batch)
+        if n_done >= len(self._script_actions):
+            self.logger.log(
+                "SCRIPT",
+                f"action script exhausted: replayed all "
+                f"{len(self._script_actions)} scripted action(s)",
+            )
+        else:
+            self.logger.log(
+                "SCRIPT",
+                f"action script INCOMPLETE: replayed {n_done} of "
+                f"{len(self._script_actions)} scripted action(s); this run "
+                f"is not comparable to a full-trajectory arm",
+            )
+
+    def _check_script_replay(self, step: int, level_before: int,
+                             reward: float) -> None:
+        """Compare the replayed step against the source trajectory.
+
+        Both candidate ablation games are RNG-free, so a level or reward
+        that disagrees with the source run means the replay has desynced
+        and every downstream comparison is void. Loud, not silent.
+        """
+        if step >= len(self._script_meta):
+            return
+        exp = self._script_meta[step]
+        problems = []
+        if exp.get("level") is not None and int(exp["level"]) != int(level_before):
+            problems.append(
+                f"level {level_before} != scripted {int(exp['level'])}"
+            )
+        if exp.get("reward") is not None and (
+            float(exp["reward"]) > 0.0
+        ) != (float(reward) > 0.0):
+            problems.append(
+                f"reward {reward} != scripted {exp['reward']}"
+            )
+        if problems:
+            self.logger.log(
+                "SCRIPT",
+                f"REPLAY DESYNC at step {step}: " + "; ".join(problems),
+            )
+            raise RuntimeError(
+                f"action-script replay desynced at step {step}: "
+                + "; ".join(problems)
+            )
+
+    def _script_choose_action(self, step: int) -> Any | None:
+        """Next action from the fixed trajectory, or None when exhausted.
+
+        Deliberately bypasses the game-over RESET forcing: any forced RESET
+        the source run took is already recorded in the trajectory, so
+        injecting another one here would desync the arms.
+        """
+        if not self._script_batch:
+            if self._script_pos >= len(self._script_actions):
+                return None
+            n = max(1, int(self.config.action_script_batch))
+            self._script_batch = self._script_actions[
+                self._script_pos:self._script_pos + n
+            ]
+            self._script_pos += len(self._script_batch)
+        action = self._script_batch.pop(0)
+        self._current_action_plan_source = "script"
+        self.logger.log(
+            "SCRIPT",
+            f"{action_label(action)} (batch_remaining="
+            f"{len(self._script_batch)}, "
+            f"{self._script_pos - len(self._script_batch)}"
+            f"/{len(self._script_actions)})",
+        )
+        return action
+
     def _choose_action(
         self, state: list[dict], actions: list[int], step: int,
     ) -> Any | None:
         """Choose next action.
 
-        Priority: GAME-OVER recovery, WARMUP queue, C3 planner queue,
-        analyzer queue, fresh C3 plan, fresh analyzer call, hard failure.
+        Priority: fixed trajectory (when an action script is loaded, it is
+        the only source), else GAME-OVER recovery, WARMUP queue, C3 planner
+        queue, analyzer queue, fresh C3 plan, fresh analyzer call, hard
+        failure.
         """
         self._current_action_plan_source = None
+        if self._script_actions:
+            return self._script_choose_action(step)
         if hasattr(self.env, "is_game_over") and self.env.is_game_over():
             self._game_over_streak += 1
             self._llm_plan.clear()
@@ -1532,10 +2076,14 @@ class SynthesisEngine:
                 ):
                     mismatch_reasons.append("predicted frame mismatch")
             else:
+                model = self._load_planner_model()
                 if not object_states_equal(
                     predicted_state,
                     actual_state,
                     scope_tags=self._planner_scope_tags(),
+                    counter_mask=(
+                        model.move_counter_mask if model else None
+                    ),
                 ):
                     mismatch_reasons.append("predicted object state mismatch")
 
@@ -1680,6 +2228,8 @@ class SynthesisEngine:
                 f"pre-analyzer write failed: {type(exc).__name__}: {exc}",
             )
 
+        briefing = self._maybe_epistemic_briefing(step)
+
         divergence_window = list(self._steps_since_analyzer)
         try:
             divergence_images = self._collect_divergence_images()
@@ -1725,6 +2275,8 @@ class SynthesisEngine:
                 extra_parts.append(divergence_feedback)
             if animation_notice:
                 extra_parts.append(animation_notice)
+            if briefing:
+                extra_parts.append(briefing)
             extra = "\n\n".join(extra_parts)
             ascii_grid = ""
             try:
@@ -1792,6 +2344,22 @@ class SynthesisEngine:
                     if hasattr(self.env, "is_game_over") else False
                 ),
                 divergence_images=divergence_images,
+                stage_epistemic=(
+                    self.config.epistemic_visible_to_analyzer
+                    and not self.config.ablate_epistemic
+                ),
+                stage_sigma=(
+                    self.config.sigma_visible_to_analyzer
+                    and not self.config.frames_only
+                    and not self.config.ablate_epistemic
+                ),
+                sigma_src=self.output_dir / "sigma.json",
+                python_only=self.config.ablate_natural_language,
+                stage_label_audit=not self.config.ablate_epistemic,
+                stage_goal_grounding=(
+                    self.config.sigma_goal_grounding_enabled
+                    and not self.config.ablate_epistemic
+                ),
             )
             shared_summary = self._capture_shared_model_artifacts(
                 workspace,
@@ -1864,6 +2432,20 @@ class SynthesisEngine:
                     f"rate-limited after {result.get('rate_limit_wait_s', '?')}s; stopping retries"
                 )
                 break
+            # A sub-30s failure is an infra blip (auth, transient API
+            # error, undetected throttling), not the model misbehaving.
+            # Instant retries during a throttle window burn every attempt
+            # in seconds and hard-stop a multi-hour run at one bad minute.
+            try:
+                fast_failure = float(dur) < 30
+            except (TypeError, ValueError):
+                fast_failure = True
+            if attempt < max_retries - 1 and fast_failure:
+                backoff = min(120, 30 * (attempt + 1))
+                self.logger.log(
+                    "ANALYZER", f"fast failure; backing off {backoff}s"
+                )
+                time.sleep(backoff)
 
         if not plan:
             failure_payload = {
@@ -2066,14 +2648,54 @@ class SynthesisEngine:
 
         self.world_model_doc = "\n".join(sections)
 
-    SHARED_WORLD_MODEL_FILENAME = "world_model.md"
-    SHARED_MODEL_UPDATES_FILENAME = "shared_model_updates.md"
+    # Under the natural-language ablation every persisted agent artifact is a
+    # Python module, so the extension follows the arm rather than being fixed.
+    # A .md file is a natural-language file by convention, and the arm refuses
+    # to create one at all rather than filling it with Python.
+    # SCOPE OF THE NATURAL-LANGUAGE ABLATION.
+    #
+    # The claim is about the WORLD MODEL's representation, not about all
+    # natural language in the system. These artifacts ARE the world model:
+    # the model code, the evolving account of the mechanics, the per-level
+    # reasoning, and the handoff that carries the model to the next agent.
+    # Under the arm each must be Python.
+    #
+    # Everything else is COMMUNICATION and stays natural language: the
+    # critic's findings, the acting agent's notes and reasoning, the engine's
+    # descriptions of observations. Ablating those would test a different and
+    # less interesting claim.
+    #
+    # If a model responds by smuggling world-model content through a
+    # communication channel, that is a RESULT, not a leak to plug: it says
+    # the NL representation was load bearing enough to be worth
+    # reconstructing. _measure_wm_in_communication reports it.
+    _WORLD_MODEL_DOC_STEMS = (
+        "world_model", "level_reasoning_log", "level_report",
+        "synth_learnings",
+    )
+    _AGENT_DOC_STEMS = _WORLD_MODEL_DOC_STEMS
+
+    def _doc(self, stem: str) -> str:
+        """Filename for an LLM-authored artifact, extension per arm."""
+        return stem + self._doc_ext
+
+    @property
+    def _doc_ext(self) -> str:
+        return ".py" if self.config.ablate_natural_language else ".md"
+
+    @property
+    def SHARED_WORLD_MODEL_FILENAME(self) -> str:
+        return "world_model" + self._doc_ext
+
+    @property
+    def SHARED_MODEL_UPDATES_FILENAME(self) -> str:
+        return "shared_model_updates" + self._doc_ext
 
     def _level_reasoning_filename(self, level_idx: int) -> str:
-        return f"level_{int(level_idx) + 1}_reasoning_log.md"
+        return f"level_{int(level_idx) + 1}_reasoning_log{self._doc_ext}"
 
     def _level_report_filename(self, level_idx: int) -> str:
-        return f"level_{int(level_idx) + 1}_report.md"
+        return f"level_{int(level_idx) + 1}_report{self._doc_ext}"
 
     def _shared_world_model_template(self) -> str:
         return (
@@ -2170,7 +2792,8 @@ class SynthesisEngine:
         world = base_dir / self.SHARED_WORLD_MODEL_FILENAME
         if world.exists() or world.is_symlink():
             yield world
-        for pattern in ("level_*_reasoning_log.md", "level_*_report.md"):
+        for pattern in (f"level_*_reasoning_log{self._doc_ext}",
+                        f"level_*_report{self._doc_ext}"):
             for path in sorted(base_dir.glob(pattern)):
                 if path.exists() or path.is_symlink():
                     yield path
@@ -2201,10 +2824,10 @@ class SynthesisEngine:
                 path = self.output_dir / name
                 if path.exists():
                     continue
-                if name.endswith("_reasoning_log.md"):
+                if name.endswith("_reasoning_log" + self._doc_ext):
                     level_number = int(name.split("_")[1])
                     path.write_text(self._level_reasoning_template(level_number))
-                elif name.endswith("_report.md"):
+                elif name.endswith("_report" + self._doc_ext):
                     level_number = int(name.split("_")[1])
                     path.write_text(self._level_report_template(level_number))
 
@@ -2239,6 +2862,61 @@ class SynthesisEngine:
         except Exception:
             pass
         return snapshot
+
+    def _stage_synth_diagnostics(self, ws_dir: Path) -> None:
+        """Symlink engine-side diagnostics into a synthesis workspace.
+
+        goal_requirements.json closes the loop synthesis -> grounding ->
+        synthesis: the synthesizer sees how the buffer disposed of its own
+        goal hypothesis (disproven readings, open holes) before it revises
+        reward_function.
+        """
+        linked_artifacts = {
+            "ontology_error.json": self.output_dir / "ontology_error.json",
+            "spriteless_object_abstraction.json": (
+                self.output_dir / "spriteless_object_abstraction.json"
+            ),
+            "animation_events.jsonl": (
+                self.frames_dir / "animation_events.jsonl"
+            ),
+            "animation_analysis.md": self.output_dir / "animation_analysis.md",
+            "planner_verification.json": (
+                self.output_dir / "planner_verification.json"
+            ),
+            "label_audit.json": self.output_dir / "label_audit.json",
+            "goal_requirements.json": (
+                self.output_dir / "goal_requirements.json"
+            ),
+        }
+        if self.config.synth_mode == "monolithic":
+            # The eta/xi artifacts carry per-object-type strata, i.e. the
+            # factorization apparatus this arm ablates. Goal grounding stays:
+            # it is goal information, held constant across arms.
+            for name in (
+                "ontology_error.json", "label_audit.json",
+                "spriteless_object_abstraction.json",
+            ):
+                linked_artifacts.pop(name, None)
+        if self._critique_due_this_round():
+            linked_artifacts.update({
+                "last_critique.md": self.output_dir / "last_critique.md",
+            })
+        for diag_name, diag_src in linked_artifacts.items():
+            if diag_src.exists():
+                diag_dst = ws_dir / diag_name
+                try:
+                    if diag_dst.exists() or diag_dst.is_symlink():
+                        diag_dst.unlink()
+                    target = os.path.relpath(
+                        diag_src.resolve(), diag_dst.parent.resolve()
+                    )
+                    diag_dst.symlink_to(target)
+                except Exception as exc:
+                    self.logger.log(
+                        "SYNTHESIS",
+                        f"{diag_name} symlink failed: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
 
     def _stage_shared_model_artifacts(self, ws_dir: Path) -> None:
         """Expose shared model docs in a workspace as writable copies."""
@@ -2316,8 +2994,8 @@ class SynthesisEngine:
             elif not (
                 name.startswith(valid_prefixes)
                 and (
-                    name.endswith("_reasoning_log.md")
-                    or name.endswith("_report.md")
+                    name.endswith("_reasoning_log" + self._doc_ext)
+                    or name.endswith("_report" + self._doc_ext)
                 )
             ):
                 continue
@@ -2386,7 +3064,8 @@ class SynthesisEngine:
         )
         if updates:
             parts.append(
-                "# Shared artifact: shared_model_updates.md\n\n" + updates
+                f"# Shared artifact: {self.SHARED_MODEL_UPDATES_FILENAME}\n\n"
+                + updates
             )
         return "\n\n".join(parts)
 
@@ -2517,6 +3196,8 @@ class SynthesisEngine:
             completed = not self._llm_plan
         elif source == "planner":
             completed = not self._planner_queue
+        elif source == "script":
+            completed = not self._script_batch
         else:
             completed = False
         if not completed:
@@ -2754,6 +3435,317 @@ class SynthesisEngine:
             return txt
         return ""
 
+    def _maybe_epistemic_briefing(self, step: int) -> str:
+        """Event-gated briefing for the analyzer prompt. Fires on new level
+        (inventory moment), after a model repair (what did the revision
+        break), and on evidence stall (no new KIND of evidence for N steps,
+        whatever the step count). Cooldown keeps it scarce: an ambient
+        briefing would be wallpaper. Self-directed consultation is taught
+        in the system prompt and does not depend on these triggers."""
+        st = getattr(self, "_briefing_state", None)
+        if st is None:
+            st = self._briefing_state = {
+                "level": None, "synth_count": 0,
+                "evidence": None, "evidence_step": step,
+                "last_fired": -(10 ** 9),
+            }
+        evidence = self.sigma.evidence_signature()
+        if evidence != st["evidence"]:
+            st["evidence"] = evidence
+            st["evidence_step"] = step
+
+        reason = ""
+        if st["level"] != self.current_level:
+            reason = "new level"
+        elif self.synthesis_count > st["synth_count"]:
+            reason = "model just revised"
+        elif (
+            step - st["evidence_step"]
+            >= int(self.config.sigma_briefing_stall_steps)
+        ):
+            reason = (
+                f"no new kind of evidence for "
+                f"{step - st['evidence_step']} steps"
+            )
+        st["level"] = self.current_level
+        st["synth_count"] = self.synthesis_count
+
+        if not reason:
+            return ""
+        if not (
+            self.config.sigma_briefing
+            and self.config.sigma_visible_to_analyzer
+            and not self.config.frames_only
+            and not self.config.ablate_epistemic
+        ):
+            return ""
+        if step - st["last_fired"] < int(self.config.sigma_briefing_cooldown):
+            return ""
+        try:
+            text = self.sigma.briefing(
+                reason=reason, aliases=self.type_aliases,
+            )
+        except Exception as exc:
+            self.logger.log(
+                "BRIEFING", f"failed: {type(exc).__name__}: {exc}",
+            )
+            return ""
+        if not text:
+            return ""
+        st["last_fired"] = step
+        self.logger.log("BRIEFING", f"injected ({reason})")
+        return text
+
+    def _harvest_model_fluents(
+        self,
+        transitions: list[dict],
+        committed_features: list[dict],
+    ) -> None:
+        """Read the current model's declared FLUENTS registry and absorb
+        admitted refinements into sigma. Propose is synthesis itself;
+        dispose is the buffer (fluents.dispose_fluents); a wholesale
+        replacement per harvest, recomputable from (buffer, code)."""
+        model = self._load_planner_model()
+        if model is None:
+            return
+        try:
+            report = harvest_and_dispose(
+                model.module,
+                transitions,
+                committed_features=committed_features,
+                alpha_0=self.config.epistemic_alpha_0,
+            )
+        except Exception as exc:
+            self.logger.log(
+                "FLUENTS", f"harvest failed: {type(exc).__name__}: {exc}",
+            )
+            return
+        self.sigma.set_model_fluents(report)
+        try:
+            (self.output_dir / "model_fluents.json").write_text(
+                json.dumps(report, indent=2, default=str)
+            )
+        except Exception as exc:
+            self.logger.log(
+                "FLUENTS", f"artifact write failed: {type(exc).__name__}: {exc}",
+            )
+        if not report["n_registered"] and not report["harvest_errors"]:
+            return
+        admitted = sorted(
+            n for n, e in report["fluents"].items()
+            if e["status"] == "admitted"
+        )
+        msg = (
+            f"registered={report['n_registered']} "
+            f"admitted={len(admitted)}"
+        )
+        if admitted:
+            msg += f" ({', '.join(admitted)})"
+        invalid = sorted(
+            f"{n}: {e['reason']}"
+            for n, e in report["fluents"].items()
+            if e["status"] == "invalid"
+        )
+        if invalid:
+            msg += f" | invalid: {'; '.join(invalid)}"
+        if report["harvest_errors"]:
+            msg += f" | harvest: {'; '.join(report['harvest_errors'])}"
+        self.logger.log("FLUENTS", msg)
+
+    def _run_label_audit(
+        self,
+        step: int,
+        transitions: list[dict],
+        committed_features: list[dict],
+        cai_map: dict[str, float],
+    ) -> None:
+        """Audit the alias labels against the buffer. Grade-A refutations are
+        retired mechanically and recorded as standing constraints so the
+        analyzer cannot re-propose them without addressing the witness. All
+        other grades are analyzer-facing evidence only."""
+        audit = label_audit(
+            transitions,
+            aliases=self.type_aliases,
+            committed_features=committed_features,
+            cai=cai_map,
+            ontology_latest=self.ontology._latest,
+        )
+        for entry in audit["refuted"]:
+            aliases_mod.apply_updates(self.type_aliases, {"remove": [
+                {"type": entry["tag"], "alias": entry["alias"]},
+            ]})
+            self.logger.log(
+                "LABEL_AUDIT",
+                f"retired {entry['alias']!r} on {entry['tag']}: "
+                f"{entry['commitment']} falsified at step "
+                f"{entry['witness_timestep']}",
+            )
+        if audit["refuted"]:
+            with open(
+                self.output_dir / "label_constraints.jsonl", "a"
+            ) as f:
+                for entry in audit["refuted"]:
+                    f.write(json.dumps(
+                        {"step": step, **entry}, default=str,
+                    ) + "\n")
+        (self.output_dir / "label_audit.json").write_text(
+            json.dumps({"step": step, **audit}, indent=2, default=str)
+        )
+        n_flags = sum(
+            len(audit[k]) for k in (
+                "contradictions", "anomalies",
+                "unlabeled_relevant", "merge_compatible",
+            )
+        )
+        if audit["refuted"] or n_flags:
+            self.logger.log(
+                "LABEL_AUDIT",
+                f"{len(audit['refuted'])} retired, "
+                f"{len(audit['contradictions'])} contradictions, "
+                f"{len(audit['anomalies'])} anomalies, "
+                f"{len(audit['unlabeled_relevant'])} unlabeled, "
+                f"{len(audit['merge_compatible'])} merge-compatible",
+            )
+
+    def _maybe_ground_goal(self, step: int, *, reason: str) -> None:
+        """One goal-requirement grounding cycle: an LLM call proposes
+        requirement predicates, the buffer disposes them mechanically, and
+        accepted-but-unsatisfied survivors become goal-stratum coverage holes
+        in sigma. Each cycle replaces the previous goal-mode set."""
+        if not getattr(self.config, "sigma_goal_grounding_enabled", True):
+            return
+        if self.config.ablate_epistemic:
+            return
+        if not self.replay_buffer:
+            return
+        # Requirements are predicates over object records. Frames-only has
+        # none until the synth's extractor has produced an object replay.
+        if self.config.frames_only and not self._spriteless_replay:
+            return
+        # The NL arm writes no English goal, so the reward_function source is
+        # what stands in as the hypothesis. Without this the ablated arm would
+        # silently lose goal grounding until the first reward, which is a
+        # capability difference, not the representational one under test.
+        have_hypothesis = bool(
+            self.goal_in_english
+            or (self.config.ablate_natural_language
+                and self.goal_hypothesis_code)
+        )
+        if not (have_hypothesis or self.total_reward > 0):
+            return
+
+        ws = (
+            self.output_dir / "goal_grounding" / f"step_{step:04d}"
+        ).resolve()
+        try:
+            ws.mkdir(parents=True, exist_ok=True)
+            reward_steps = [
+                {
+                    "timestep": t.timestep,
+                    "level": t.level,
+                    "action_name": t.action_name,
+                    "diff_text": t.diff_text,
+                }
+                for t in self.replay_buffer if t.reward > 0
+            ]
+            (ws / "grounding_input.json").write_text(json.dumps({
+                "reason": reason,
+                "goal_in_english": self.goal_in_english or "",
+                "reward_function_src": self.goal_hypothesis_code or "",
+                "world_model_notes": self._read_text_artifact(
+                    self.output_dir / self.SHARED_WORLD_MODEL_FILENAME,
+                    limit=6000,
+                ),
+                "reward_steps": reward_steps,
+                "known_tags": (
+                    sorted({
+                        str(tag)
+                        for t in self._spriteless_replay
+                        for o in (t.get("after_state") or [])
+                        for tag in (o.get("tags") or [])
+                    })
+                    if self.config.frames_only
+                    else sorted(self.known_types.keys())
+                ),
+                "previous_requirements": self._read_text_artifact(
+                    self.output_dir / "goal_requirements.json",
+                    limit=4000,
+                ),
+            }, indent=2, default=str))
+        except Exception as exc:
+            self.logger.log(
+                "GOAL_GROUND",
+                f"input staging failed: {type(exc).__name__}: {exc}",
+            )
+            return
+
+        prompt = _aux_prompt("goal_requirements.md")
+        if not prompt:
+            self.logger.log("GOAL_GROUND", "prompt file missing")
+            return
+        self._run_backend_subagent(
+            ws_dir=ws, prompt=prompt, label="goal_grounding", timeout_s=600,
+        )
+
+        raw_path = ws / "goal_requirements_raw.json"
+        if not raw_path.exists():
+            self.logger.log(
+                "GOAL_GROUND", "subagent wrote no goal_requirements_raw.json"
+            )
+            return
+        try:
+            raw = json.loads(raw_path.read_text())
+        except Exception as exc:
+            self.logger.log(
+                "GOAL_GROUND", f"raw parse failed: {type(exc).__name__}: {exc}"
+            )
+            return
+
+        requirements, errors = parse_raw_requirements(raw)
+        grounded = ground_requirements(
+            requirements,
+            self._epistemic_transitions(),
+            current_level=int(self.current_level),
+        )
+        injections = goal_mode_injections(grounded)
+        self._goal_injections = injections
+
+        prev_ids = self.sigma.goal_predicate_ids()
+        if prev_ids:
+            self.sigma.retire_goal_modes(prev_ids)
+        inject_summary = self.sigma.inject_goal_modes(injections)
+
+        payload = {
+            "step": int(step),
+            "reason": reason,
+            "goal_hypothesis": str(raw.get("goal_hypothesis", "") or ""),
+            "parse_errors": errors,
+            **grounded,
+            "injections": injections,
+            "inject_summary": inject_summary,
+            "retired_predicate_ids": prev_ids,
+        }
+        try:
+            (self.output_dir / "goal_requirements.json").write_text(
+                json.dumps(payload, indent=2, default=str)
+            )
+        except Exception as exc:
+            self.logger.log(
+                "GOAL_GROUND",
+                f"artifact write failed: {type(exc).__name__}: {exc}",
+            )
+        self.logger.log(
+            "GOAL_GROUND",
+            f"{reason}: {grounded['n_accepted']} accepted, "
+            f"{grounded['n_rejected']} rejected by necessity, "
+            f"{grounded['n_invalid']} invalid, "
+            f"{inject_summary['added']} coverage hole(s) injected"
+            + (
+                f", {inject_summary['unmatched']} UNMATCHED object name(s)"
+                if inject_summary.get("unmatched") else ""
+            ),
+        )
+
     def _should_synthesize(self, step: int) -> bool:
         """Return True if CEGIS should run now.
 
@@ -2769,7 +3761,8 @@ class SynthesisEngine:
         if self.config.crystallisation_enabled and not self.crystallised:
             return False
 
-        if self._warmup_queue or self._llm_plan or self._planner_queue:
+        if (self._warmup_queue or self._llm_plan or self._planner_queue
+                or self._script_batch):
             return False
 
         if self.synthesis_count == 0:
@@ -2898,7 +3891,7 @@ class SynthesisEngine:
                 "current_level_report": self._level_report_filename(
                     self.current_level
                 ),
-                "synth_learnings": "synth_learnings.md",
+                "synth_learnings": self._doc("synth_learnings"),
                 "critique_findings": "last_critique.md",
                 "critique_response": "critique_response.md",
                 "animation_findings": "animation_analysis.md",
@@ -3419,6 +4412,7 @@ class SynthesisEngine:
         in-process under a short alarm so a pathological model cannot hang the
         engine.
         """
+        self._last_pred_state = None
         diverged = False
         reasons: list[str] = []
         try:
@@ -3503,9 +4497,13 @@ class SynthesisEngine:
                             f"transition_function raised {type(exc).__name__}"
                         )
                         pred = None
+                    self._last_pred_state = (
+                        pred if isinstance(pred, list) else MODEL_ERROR
+                    )
                     if pred is not None and not object_states_equal(
                         pred,
                         actual_state,
+                        counter_mask=getattr(self, "_div_mask", None),
                     ):
                         diverged = True
                         reasons.append("predicted object state mismatch")
@@ -3595,6 +4593,8 @@ class SynthesisEngine:
         """
         if not self.config.frames_only or self.synthesis_count <= 0:
             return
+        if self.config.ablate_epistemic:
+            return
         if not force:
             interval = max(1, int(self.config.ontology_measure_interval))
             if step % interval != 0:
@@ -3623,6 +4623,7 @@ class SynthesisEngine:
                 sort_by=self.config.epistemic_sort_by,
                 rng=diag_rng,
                 max_candidates=self.ontology.max_candidates,
+                committed_features=self.ontology.committed_features(),
             )
         except Exception as exc:
             self.logger.log(
@@ -3643,6 +4644,8 @@ class SynthesisEngine:
         trace_rec = status.get("trace_record")
         if isinstance(latest, dict):
             self.ontology._latest = latest
+        self._spriteless_replay = status.get("replay") or []
+        self._refresh_spriteless_substrate(step)
         if isinstance(trace_rec, dict):
             self.ontology._trace.append(trace_rec)
             self.ontology.append_trace_line(
@@ -3660,6 +4663,50 @@ class SynthesisEngine:
                 f"types={trace_rec['n_induced_types']} "
                 f"frames={trace_rec['n_unique_frames_extracted']} "
                 f"reason={reason or 'refresh'}",
+            )
+
+    def _epistemic_transitions(self) -> list[dict]:
+        """Object-level transitions the epistemic layer reads: sprite records
+        in sprite mode, the synth-extracted object replay in frames-only."""
+        if self.config.frames_only:
+            return self._spriteless_replay
+        return self._serialize_transitions()
+
+    def _refresh_spriteless_substrate(self, step: int) -> None:
+        """Frames-only counterpart of the per-step sigma block. The extractor
+        may rename or retype objects at any synthesis, so sigma is rebuilt from
+        the object replay instead of observed incrementally. Goal modes are
+        not buffer-derivable and are re-injected from the last grounding."""
+        transitions = self._spriteless_replay
+        if not transitions:
+            return
+        try:
+            committed = self.ontology.committed_features()
+            try:
+                actions = list(self.env.get_available_actions())
+            except Exception:
+                actions = None
+            sigma = SigmaState.from_transitions(
+                transitions,
+                available_actions=actions,
+                committed_features=committed,
+                **self._sigma_params,
+            )
+            if self._goal_injections:
+                sigma.inject_goal_modes(self._goal_injections)
+            sigma.set_cai(compute_cai(transitions, committed_features=committed))
+            self.sigma = sigma
+            if self.config.sigma_fluent_harvest:
+                self._harvest_model_fluents(transitions, committed)
+                self.ontology.annotate_xi_ledger(self.sigma.forward_record)
+            payload = dump_sigma(self.sigma, self.output_dir / "sigma.json")
+            with open(self.output_dir / "sigma_trace.jsonl", "a") as f:
+                f.write(json.dumps(
+                    trace_record_from(payload, step=step), default=str,
+                ) + "\n")
+        except Exception as exc:
+            self.logger.log(
+                "SIGMA", f"spriteless update failed: {type(exc).__name__}: {exc}"
             )
 
     def _model_is_consistent(self) -> bool:
@@ -3777,7 +4824,6 @@ class SynthesisEngine:
             self.logger.log(label.upper(), "Claude CLI not found")
             return {"error": "claude not found"}
         from .sandbox import (
-            claude_popen_kwargs,
             describe_claude_resource_limits,
             terminate_process_group,
             wait_with_resource_monitor,
@@ -3811,6 +4857,7 @@ class SynthesisEngine:
                 )
                 wait_with_resource_monitor(
                     proc, timeout_s=timeout_s, log_fn=self.logger.log,
+                    stream_path=ws_dir / f"{safe_label}_stdout.jsonl",
                 )
             dur = round(time.time() - t0, 1)
             self.logger.log(
@@ -3891,7 +4938,9 @@ class SynthesisEngine:
             crit_prompt = (
                 Path(__file__).resolve().parent
                 / "prompts" / "synthesizer" / "critique.md"
-            ).read_text(encoding="utf-8")
+            ).read_text(encoding="utf-8").replace(
+                "`critique.md`", "`" + "critique.md" + "`",
+            )
         except Exception:
             return ""
         self._run_backend_subagent(
@@ -4218,49 +5267,20 @@ the needed rule, keep the verifier passing, state the uncertainty in
                 ws_dir, scope_tags=scope_tags,
             )
         else:
-            self.adapter.write_test_runner(ws_dir)
+            self.adapter.write_test_runner(
+                ws_dir, structure=self.config.synth_mode,
+                no_natural_language=self.config.ablate_natural_language,
+            )
 
-        linked_artifacts = {
-            "ontology_error.json": self.output_dir / "ontology_error.json",
-            "spriteless_object_abstraction.json": (
-                self.output_dir / "spriteless_object_abstraction.json"
-            ),
-            "animation_events.jsonl": (
-                self.frames_dir / "animation_events.jsonl"
-            ),
-            "animation_analysis.md": self.output_dir / "animation_analysis.md",
-            "planner_verification.json": (
-                self.output_dir / "planner_verification.json"
-            ),
-        }
-        if self._critique_due_this_round():
-            linked_artifacts.update({
-                "last_critique.md": self.output_dir / "last_critique.md",
-            })
-        for diag_name, diag_src in linked_artifacts.items():
-            if diag_src.exists():
-                diag_dst = ws_dir / diag_name
-                try:
-                    if diag_dst.exists() or diag_dst.is_symlink():
-                        diag_dst.unlink()
-                    target = os.path.relpath(
-                        diag_src.resolve(), diag_dst.parent.resolve()
-                    )
-                    diag_dst.symlink_to(target)
-                except Exception as exc:
-                    self.logger.log(
-                        "SYNTHESIS",
-                        f"{diag_name} symlink failed: "
-                        f"{type(exc).__name__}: {exc}"
-                    )
+        self._stage_synth_diagnostics(ws_dir)
 
         self._stage_shared_model_artifacts(ws_dir)
 
         try:
-            sl_dst = ws_dir / "synth_learnings.md"
+            sl_dst = ws_dir / self._doc("synth_learnings")
             if sl_dst.exists() or sl_dst.is_symlink():
                 sl_dst.unlink()
-            sl_src = self.output_dir / "synth_learnings.md"
+            sl_src = self.output_dir / self._doc("synth_learnings")
             sl_dst.write_text(
                 sanitize_model_visible_text(sl_src.read_text())
                 if sl_src.exists() else ""
@@ -4426,6 +5446,10 @@ the needed rule, keep the verifier passing, state the uncertainty in
         prev_code = None
         if prev_ws.exists() and (prev_ws / "game_engine.py").exists():
             prev_code = (prev_ws / "game_engine.py").read_text()
+            if self.config.ablate_natural_language and prev_code:
+                prev_code = self._strip_nl_code(
+                    prev_code, where="carry_forward",
+                )
 
         if self.config.frames_only:
             stub_text = self.adapter.format_code_stub_frames(
@@ -4497,6 +5521,12 @@ the needed rule, keep the verifier passing, state the uncertainty in
                 test_runner_path=str(ws_dir / "test_runner.py"),
                 project_root=str(Path(__file__).resolve().parents[3]),
                 structure=self.config.synth_mode,
+                include_eta=not self.config.ablate_epistemic,
+                include_xi=not self.config.ablate_epistemic,
+                include_fluents=(
+                    self.config.sigma_fluent_harvest
+                    and not self.config.ablate_epistemic
+                ),
             )
         elif self.crystallised:
             scope_extra = sorted(self.crystallised_scope_extra.keys())
@@ -4514,7 +5544,18 @@ the needed rule, keep the verifier passing, state the uncertainty in
                 test_runner_path=str(ws_dir / "test_runner.py"),
                 project_root=str(Path(__file__).resolve().parents[3]),
                 structure=self.config.synth_mode,
+                include_xi=not self.config.ablate_epistemic,
+                include_fluents=(
+                    self.config.sigma_fluent_harvest
+                    and not self.config.ablate_epistemic
+                ),
             )
+
+        if self.config.ablate_natural_language:
+            prompt += "\n" + (
+                Path(__file__).resolve().parent
+                / "prompts" / "synthesizer" / "shared" / "python_only.txt"
+            ).read_text(encoding="utf-8")
 
         interval = int(getattr(self.config, "synth_simplify_interval", 0) or 0)
         if (interval > 0 and self.synthesis_count > 1
@@ -4561,6 +5602,9 @@ the needed rule, keep the verifier passing, state the uncertainty in
             )
 
         self._consume_xi_updates(ws_dir)
+        # The NL sweep does NOT run here. _update_world_model_after_synthesis
+        # re-creates the handoff artifacts below, so a sweep at this point
+        # deletes files that are immediately rewritten. It runs after.
         if self.config.frames_only:
             self._refresh_spriteless_diagnostics(
                 step, force=True, reason="post_synthesis",
@@ -4593,6 +5637,7 @@ the needed rule, keep the verifier passing, state the uncertainty in
             latest.unlink()
         latest.symlink_to(ws_dir.name)
 
+        goal_before = self.goal_in_english
         self._update_world_model_after_synthesis(
             accuracy,
             ws_dir,
@@ -4600,6 +5645,21 @@ the needed rule, keep the verifier passing, state the uncertainty in
             mission,
             shared_doc_snapshot=shared_doc_snapshot,
         )
+
+        if self.config.ablate_natural_language:
+            # AFTER the handoff artifacts are written, not before: an earlier
+            # sweep deletes files that _update_world_model_after_synthesis
+            # immediately recreates. Both directories, because agent output
+            # lands in the workspace and is captured into the run root.
+            # game_engine.py is not stripped anywhere: the verifier rejects
+            # comments outright, so a passing model has none and a strip would
+            # only hide non-compliance.
+            for d in (ws_dir, self.output_dir):
+                self._enforce_python_artifacts(d)
+                self._refuse_non_python_artifacts(d)
+                self._measure_wm_in_communication(d)
+        if self.goal_in_english and self.goal_in_english != goal_before:
+            self._maybe_ground_goal(step, reason="goal_revision")
 
         self.run_log.append_synthesis(
             step=step,
@@ -4644,7 +5704,7 @@ the needed rule, keep the verifier passing, state the uncertainty in
             self.logger.log("ERROR", "Claude CLI not found")
             return {"error": "claude not found", "duration_s": 0}
         from .sandbox import (
-            claude_popen_kwargs,
+            StreamStallTimeout,
             describe_claude_resource_limits,
             terminate_process_group,
             wait_with_resource_monitor,
@@ -4765,9 +5825,15 @@ the needed rule, keep the verifier passing, state the uncertainty in
                             proc,
                             timeout_s=timeout_val,
                             log_fn=self.logger.log,
+                            stream_path=stdout_path,
                         )
-                    except subprocess.TimeoutExpired:
+                    except subprocess.TimeoutExpired as te:
                         timed_out = True
+                        timeout_why = (
+                            f"stream stalled for {int(te.timeout)}s"
+                            if isinstance(te, StreamStallTimeout)
+                            else f"wall clock {timeout_val}s"
+                        )
                         terminate_process_group(proc)
                         self._docker_rm(_dname)
                         rc = -1
@@ -4801,8 +5867,8 @@ the needed rule, keep the verifier passing, state the uncertainty in
             if timed_out:
                 self.logger.log(
                     "SYNTHESIS",
-                    f"TIMED OUT after {timeout_val}s "
-                    f"(partial output saved to {stdout_path.name})"
+                    f"TIMED OUT ({timeout_why}; "
+                    f"partial output saved to {stdout_path.name})"
                 )
             if rate_limited_giveup:
                 self.logger.log(
@@ -5104,9 +6170,13 @@ the needed rule, keep the verifier passing, state the uncertainty in
                     "timestep": t.timestep,
                     "level": t.level,
                 }
+                ticks = getattr(t, "intermediate_states", None)
+                if ticks:
+                    d["intermediate_states"] = ticks
             if hasattr(t, "click_x") and hasattr(t, "click_y"):
                 d["click_x"] = t.click_x
                 d["click_y"] = t.click_y
+                d["click_grid"] = getattr(t, "click_grid", None)
             out.append(d)
         return out
 
@@ -5148,7 +6218,7 @@ the needed rule, keep the verifier passing, state the uncertainty in
     ) -> None:
         """Persist synth-written text artifacts that feed later prompts."""
         artifacts = [
-            ("synth_learnings.md", "synth_learnings", "SYNTH_LEARNINGS", 8000),
+            (self._doc("synth_learnings"), "synth_learnings", "SYNTH_LEARNINGS", 8000),
             ("critique_response.md", "critique_response", "CRITIQUE", 8000),
         ]
         for filename, attr, log_label, limit in artifacts:
@@ -5188,7 +6258,7 @@ the needed rule, keep the verifier passing, state the uncertainty in
         if shared_summary:
             self.shared_model_updates = shared_summary
             try:
-                synth_path = self.output_dir / "synth_learnings.md"
+                synth_path = self.output_dir / self._doc("synth_learnings")
                 existing = synth_path.read_text() if synth_path.exists() else ""
                 marker = (
                     "## Shared world-model document updates "
@@ -5208,9 +6278,9 @@ the needed rule, keep the verifier passing, state the uncertainty in
     def _consume_xi_updates(self, ws_dir: Path) -> None:
         """Read xi_updates.json, verify each proposed feature against worst-K strata, and apply survivors.
 
-        SKIPPED under frames_only. A missing file is a no-op.
+        A missing file is a no-op.
         """
-        if self.config.frames_only:
+        if self.config.ablate_epistemic:
             return
         path = ws_dir / "xi_updates.json"
         if not path.exists():
@@ -5250,7 +6320,7 @@ the needed rule, keep the verifier passing, state the uncertainty in
 
         from .epistemic import _collect_stratum_transitions, _score_xi_candidate
 
-        transitions = self._serialize_transitions()
+        transitions = self._epistemic_transitions()
 
         verified: list[dict] = []
         rejected: list[dict] = []
@@ -5541,7 +6611,7 @@ the needed rule, keep the verifier passing, state the uncertainty in
                 "frames_only": self.config.frames_only,
                 "reason": reason,
                 "source_output_dir": str(self.output_dir),
-                "schema_version": 8,
+                "schema_version": 9,
             }
             (snap_dir / "snapshot_meta.json").write_text(
                 json.dumps(meta, indent=2, default=str)
@@ -5563,7 +6633,7 @@ the needed rule, keep the verifier passing, state the uncertainty in
         """Atomically save engine state. Env state is not pickled. It is restored by action replay on resume."""
         try:
             ck = {
-                "schema_version": 8,
+                "schema_version": 9,
                 "step": step,
                 "actions_taken": list(self._actions_taken),
                 "agentic_consumer_call_count":
@@ -5612,6 +6682,8 @@ the needed rule, keep the verifier passing, state the uncertainty in
                 "llm_plan": self._llm_plan,
                 "llm_plan_origin_step": self._llm_plan_origin_step,
                 "llm_plan_no_effect_streak": self._llm_plan_no_effect_streak,
+                "script_pos": self._script_pos,
+                "script_batch": list(self._script_batch),
                 "planner_queue": self._planner_queue,
                 "planner_trace": self._planner_trace,
                 "planner_expectation": self._planner_expectation,
@@ -5642,6 +6714,7 @@ the needed rule, keep the verifier passing, state the uncertainty in
                 "committed_xi_features": (
                     self.ontology.committed_features()
                 ),
+                "sigma_state": self.sigma.to_dict(),
             }
             path = self.output_dir / self.CHECKPOINT_FILENAME
             tmp = path.with_suffix(".pkl.tmp")
@@ -5663,7 +6736,7 @@ the needed rule, keep the verifier passing, state the uncertainty in
             ck = pickle.load(f)
 
         schema = ck.get("schema_version", 0)
-        if schema not in (1, 2, 3, 4, 5, 6, 7, 8):
+        if schema not in (1, 2, 3, 4, 5, 6, 7, 8, 9):
             raise ValueError(
                 f"checkpoint schema {schema} not supported"
             )
@@ -5698,6 +6771,8 @@ the needed rule, keep the verifier passing, state the uncertainty in
         self._llm_plan = ck["llm_plan"]
         self._llm_plan_origin_step = ck["llm_plan_origin_step"]
         self._llm_plan_no_effect_streak = ck["llm_plan_no_effect_streak"]
+        self._script_pos = int(ck.get("script_pos", 0))
+        self._script_batch = list(ck.get("script_batch", []))
         self._planner_queue = list(ck.get("planner_queue", []))
         self._planner_trace = list(ck.get("planner_trace", []))
         self._planner_expectation = ck.get("planner_expectation")
@@ -5802,6 +6877,8 @@ the needed rule, keep the verifier passing, state the uncertainty in
             self._refresh_spriteless_diagnostics(
                 self._resume_step - 1, force=True, reason="resume",
             )
+        elif self.config.ablate_epistemic:
+            pass
         else:
             try:
                 dump_epistemic_matrix(
@@ -5816,6 +6893,47 @@ the needed rule, keep the verifier passing, state the uncertainty in
             except Exception as exc:
                 self.logger.log(
                     "RESUME", f"epistemic re-dump failed: {exc}"
+                )
+            try:
+                sigma_ck = ck.get("sigma_state")
+                if sigma_ck:
+                    self.sigma = SigmaState.from_dict(sigma_ck)
+                else:
+                    # Pre-v9 checkpoint: rebuild the buffer-derivable Σ state
+                    # by replay. k_att, goal modes, and the prequential
+                    # accumulators are not buffer-derivable and start fresh.
+                    self.sigma = SigmaState.from_transitions(
+                        self._serialize_transitions(),
+                        available_actions=self.env.get_available_actions(),
+                        committed_features=(
+                            self.ontology.committed_features()
+                        ),
+                        alpha=self.config.sigma_alpha,
+                        alpha_0=self.config.epistemic_alpha_0,
+                        lp_window=self.config.sigma_lp_window,
+                        m_min=self.config.sigma_m,
+                        eps=self.config.sigma_eps,
+                        goal_cap=self.config.sigma_goal_cap,
+                        omega=self.config.sigma_omega,
+                    )
+                    self.logger.log(
+                        "RESUME",
+                        "pre-v9 checkpoint: sigma rebuilt from buffer "
+                        "(k_att / goal modes / prequential state reset)",
+                    )
+                # not persisted: the running config decides U_c semantics
+                self.sigma.model_resolved = bool(
+                    self.config.sigma_model_resolved
+                )
+                dump_sigma(
+                    self.sigma,
+                    self.output_dir / "sigma.json",
+                    aliases=self.type_aliases,
+                )
+            except Exception as exc:
+                self.logger.log(
+                    "RESUME",
+                    f"sigma restore failed: {type(exc).__name__}: {exc}",
                 )
 
         self.logger.log(

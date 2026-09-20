@@ -124,7 +124,7 @@ def main():
     parser.add_argument("--model", type=str, default="claude-opus-4-7[1m]")
     parser.add_argument("--max-turns", type=int, default=100)
     parser.add_argument("--effort", type=str, default="max",
-                        choices=["low", "medium", "high", "max"],
+                        choices=["low", "medium", "high", "xhigh", "max"],
                         help="Claude Code thinking effort for synthesis "
                              "(default max, preserves prior behavior).")
     parser.add_argument("--timeout", type=int, default=0)
@@ -135,7 +135,7 @@ def main():
     parser.add_argument("--agentic-consumer-model", type=str,
                         default="claude-opus-4-7")
     parser.add_argument("--agentic-consumer-effort", type=str, default="max",
-                        choices=["low", "medium", "high", "max"],
+                        choices=["low", "medium", "high", "xhigh", "max"],
                         help="Claude Code thinking effort for the analyzer "
                              "(default max, preserves prior behavior).")
     parser.add_argument("--agentic-consumer-max-turns", type=int, default=30)
@@ -157,15 +157,21 @@ def main():
                               "logs, raw transcripts, checkpoints). By default the "
                               "run is finalized to its clean, shareable form."))
     parser.add_argument("--synth-mode", type=str, default="free",
-                        choices=["free", "oop", "monolithic"],
-                        help=("Synthesis template: 'free' (default, no "
+                        choices=["free", "oop", "factored", "monolithic"],
+                        help=("Synthesis template. 'free' (default, no "
                               "structural enforcement; the synth chooses "
                               "classes, free functions, lookup tables, "
-                              "whatever fits), 'oop' (per-tag classes), "
-                              "or 'monolithic' (single transition_function, "
-                              "no classes). 'oop' and 'monolithic' are "
-                              "ablation modes for the paper's structural "
-                              "comparison table."))
+                              "whatever fits) is the paper configuration. "
+                              "'oop' is per-tag classes. 'factored' enforces "
+                              "RDDL-style per-object-type update rules with a "
+                              "TYPE_RULES registry and named pairwise "
+                              "interaction rules. 'monolithic' enforces a "
+                              "single transition_function with no classes and "
+                              "no transition-logic helpers, AND strips the "
+                              "whole factorization apparatus (object-ontology "
+                              "prescriptions, xi audit, fluent contract) as "
+                              "one bundle. 'factored' vs 'monolithic' is the "
+                              "structural ablation pair."))
     parser.add_argument("--frames-only", dest="frames_only",
                         action="store_true", default=False,
                         help=("Hide all sprite-level perception from both "
@@ -262,6 +268,60 @@ def main():
                         help=("Every N synthesis rounds, prepend a 'compress the "
                               "model' simplification directive (baseline1-style "
                               "anti-overfitting). 0 disables. Default 4."))
+    parser.add_argument("--signal", type=str, default="legacy",
+                        choices=["legacy", "sigma", "both", "none"],
+                        help=("Which epistemic signal the analyzer sees "
+                              "(the ablation-arm switch). legacy = the "
+                              "epistemic matrix (reproduces prior runs), "
+                              "sigma = the per-object substrate, both, or "
+                              "none. Sigma is computed in every sprite-mode "
+                              "run regardless of visibility."))
+    parser.add_argument("--no-goal-grounding",
+                        dest="sigma_goal_grounding_enabled",
+                        action="store_false", default=True,
+                        help=("Disable the goal-requirement grounding cycle "
+                              "(one LLM call at level advances and goal "
+                              "revisions)."))
+    parser.add_argument("--no-fluent-harvest", dest="sigma_fluent_harvest",
+                        action="store_false", default=True,
+                        help=("Disable harvesting the model's declared "
+                              "FLUENTS registry (on by default: absorbs "
+                              "admitted refinements into sigma and adds the "
+                              "declaration contract to the synthesis "
+                              "prompt)."))
+    parser.add_argument("--no-model-resolved", dest="sigma_model_resolved",
+                        action="store_false", default=True,
+                        help=("Disable three-state U_c (on by default: "
+                              "enough correct forward predictions resolve a "
+                              "mixed cell as a representational confound "
+                              "instead of an epistemic unknown)."))
+    parser.add_argument("--no-briefing", dest="sigma_briefing",
+                        action="store_false", default=True,
+                        help=("Disable the event-gated epistemic briefing "
+                              "(on by default: injected on new level, "
+                              "post-repair, and evidence stall)."))
+    parser.add_argument("--ablate-epistemic", dest="ablate_epistemic",
+                        action="store_true", default=False,
+                        help=("Systems-level ablation: no epistemic machinery "
+                              "at all. No sigma/matrix computation, no "
+                              "ontology measure or xi ledger, no label audit, "
+                              "no goal grounding, and no epistemic prompt "
+                              "sections for either agent. Combine with "
+                              "--signal none."))
+    parser.add_argument("--visibility-only-ablation",
+                        dest="visibility_only_ablation",
+                        action="store_true", default=False,
+                        help=("Allow --signal none without --ablate-epistemic "
+                              "(hide the signal from the analyzer while still "
+                              "computing everything). Refused otherwise, "
+                              "because it silently produces a non-baseline "
+                              "ablation arm."))
+    parser.add_argument("--warmup-click-all", dest="warmup_click_all",
+                        action="store_true", default=False,
+                        help=("Re-enable the engine-scripted click-all warmup "
+                              "at game start (sprite mode). Off by default so "
+                              "action selection is analyzer-driven from step "
+                              "0, matching frames-only runs."))
     parser.add_argument("--critique", dest="critique_enabled",
                         action="store_true", default=False,
                         help=("After passing synth rounds, run an adversarial "
@@ -334,6 +394,36 @@ def main():
     parser.add_argument("--planner-verify-max-levels", type=int, default=0,
                         help=("Completed level starts to verify before live C3 "
                               "use. 0 verifies all completed starts."))
+    parser.add_argument("--ablate-natural-language",
+                        dest="ablate_natural_language",
+                        action="store_true", default=False,
+                        help=("Natural-language ablation: every artifact the "
+                              "agents persist between invocations must be "
+                              "Python. game_engine.py comments and docstrings "
+                              "are stripped before verification and before "
+                              "carry-forward, and the shared handoff "
+                              "documents must parse as Python or they are "
+                              "discarded. The dual-agent architecture is left "
+                              "intact, so the comparison isolates the NL "
+                              "intermediate representation instead of "
+                              "confounding it with removing an agent."))
+    parser.add_argument("--action-script", type=str, default=None,
+                        help=("Fixed-trajectory arm: replay this action "
+                              "trajectory instead of running the acting "
+                              "agent. Accepts a prior run's "
+                              "frames/actions.jsonl (one JSON object per "
+                              "line with action_id, plus x/y for ACTION6). "
+                              "The acting agent and the planner are removed "
+                              "from the loop entirely, so every arm sees an "
+                              "identical replay buffer and only synthesis "
+                              "differs. Used for the structural ablation."))
+    parser.add_argument("--action-script-batch", type=int, default=6,
+                        help=("Scripted actions handed to the engine per "
+                              "batch. A drained batch is the plan boundary "
+                              "the deferred-CEGIS gate counts, so this sets "
+                              "the resolution of the synthesis-count "
+                              "measurement. Default 6, the median analyzer "
+                              "plan length in the g50t reference run."))
     parser.add_argument("--no-competition", dest="competition",
                         action="store_false", default=True,
                         help=("Disable competition mode. Competition mode is ON "
@@ -343,6 +433,106 @@ def main():
                               "RESET to retry -- matching the ARC-AGI-3 leaderboard "
                               "scorecard semantics. Disable only for debugging."))
     args = parser.parse_args()
+
+    if args.signal == "none" and not args.ablate_epistemic \
+            and not args.visibility_only_ablation:
+        parser.error(
+            "--signal none only hides the epistemic signal from the analyzer; "
+            "sigma, fluent harvest, goal grounding, label audit and the xi "
+            "ledger all still run. A baseline arm needs --ablate-epistemic as "
+            "well. Pass --visibility-only-ablation if hiding the signal while "
+            "computing everything is intentional."
+        )
+
+    if args.synth_mode == "factored" and args.frames_only:
+        parser.error(
+            "--synth-mode factored is a sprite-mode arm: it enforces "
+            "per-object-type rules over the extractor's object records, "
+            "which frames-only does not provide."
+        )
+    if args.synth_mode == "monolithic":
+        # The factorization apparatus is stripped as one bundle. The fluent
+        # registry is the RDDL lifted-predicate layer, so leaving harvest on
+        # would keep half the treatment inside the ablated arm.
+        args.sigma_fluent_harvest = False
+
+    if args.action_script:
+        script_path = Path(args.action_script)
+        if not script_path.exists():
+            parser.error(f"--action-script not found: {script_path}")
+        if args.action_script_batch < 1:
+            parser.error("--action-script-batch must be >= 1")
+        if args.planner_autonomous:
+            parser.error(
+                "--action-script with --planner-autonomous lets the planner "
+                "inject actions the trajectory does not contain, which "
+                "desyncs the arms. Drop one."
+            )
+        if args.warmup_click_all:
+            parser.error(
+                "--action-script with --warmup-click-all prepends engine "
+                "clicks that are not in the trajectory, which desyncs the "
+                "arms. Drop one."
+            )
+        if args.crystallise:
+            parser.error(
+                "--action-script with --crystallise gates synthesis on an "
+                "analyzer alias partition, but the fixed-trajectory arm has "
+                "no analyzer, so synthesis would never fire."
+            )
+        n_script = sum(
+            1 for line in script_path.read_text().splitlines() if line.strip()
+        )
+        # The trajectory IS the budget. Without this the argparse default
+        # silently truncates the arm partway and the run reports itself
+        # complete, which is indistinguishable from a full replay in every
+        # artifact except the engine's exhaustion marker.
+        # Resuming carries the prior run's step counter, and the engine's loop
+        # compares that absolute step against max_actions. A 292-action script
+        # resumed at step 757 is therefore already "over budget" and replays
+        # zero actions while reporting itself complete. Offset the budget by
+        # what the resumed run already executed so the script gets its full
+        # length either way.
+        resume_offset = 0
+        if args.resume:
+            rp = Path(args.resume)
+            acts = (rp.parent if rp.name == "checkpoint.pkl" else rp) / "frames" / "actions.jsonl"
+            try:
+                with acts.open() as fh:
+                    resume_offset = sum(1 for _ in fh)
+            except OSError:
+                resume_offset = 0
+            if resume_offset:
+                print(
+                    f"[action-script] resuming after {resume_offset} recorded "
+                    f"action(s); budget offset accordingly",
+                    file=sys.stderr,
+                )
+        n_script += resume_offset
+
+        explicit_cap = "--max-actions" in sys.argv
+        if not explicit_cap:
+            if args.max_actions != n_script:
+                print(
+                    f"[action-script] --max-actions {args.max_actions} -> "
+                    f"{n_script} (trajectory length)",
+                    file=sys.stderr,
+                )
+            args.max_actions = n_script
+        elif args.max_actions > n_script:
+            print(
+                f"[action-script] clamping --max-actions "
+                f"{args.max_actions} -> {n_script} (trajectory length)",
+                file=sys.stderr,
+            )
+            args.max_actions = n_script
+        elif args.max_actions < n_script:
+            print(
+                f"[action-script] WARNING: --max-actions {args.max_actions} "
+                f"is below the {n_script}-action trajectory. This arm will "
+                f"be INCOMPLETE and not comparable to a full-trajectory arm.",
+                file=sys.stderr,
+            )
 
     if args.competition:
         os.environ["ONLY_RESET_LEVELS"] = "true"
@@ -476,6 +666,17 @@ def main():
             args.planner_require_completed_verification
         ),
         planner_verify_max_levels=args.planner_verify_max_levels,
+        epistemic_visible_to_analyzer=args.signal in ("legacy", "both"),
+        sigma_visible_to_analyzer=args.signal in ("sigma", "both"),
+        sigma_goal_grounding_enabled=args.sigma_goal_grounding_enabled,
+        sigma_fluent_harvest=args.sigma_fluent_harvest,
+        sigma_model_resolved=args.sigma_model_resolved,
+        sigma_briefing=args.sigma_briefing,
+        ablate_epistemic=args.ablate_epistemic,
+        warmup_click_all=args.warmup_click_all,
+        action_script=args.action_script,
+        action_script_batch=args.action_script_batch,
+        ablate_natural_language=args.ablate_natural_language,
         goal_hint=_load_prompt("engine/goal_hint.md"),
     )
 

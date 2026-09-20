@@ -27,7 +27,7 @@ Output: write `next_actions.json`:
 Each step must use only an id in the current `available_actions`: a bare int, 0 / "RESET", or {"action":"ACTION6","x":<col>,"y":<row>} for a click only when 6 is available (x=column, y=row, 0..63).
 
 Action semantics for ids that are present in `available_actions` (absent ids do not exist for this game/state and must not be proposed as probes):
-  0 = RESET: retries the CURRENT level -- restores it to its start and        refills the per-attempt step budget. Use it when the level's step        budget runs out (board freezes, `game_over` set) or the attempt is        stuck. Does not reset cleared levels or your score. Avoid doing this if you can continue the existing game, especially if step budget is healthy, and especially for exploration.
+  0 = RESET: retries the CURRENT level -- restores it to its start and        refills the per-attempt step budget. Use it when the level's step        budget runs out (board freezes, `game_over` set) or the attempt is        stuck. Does not reset cleared levels or your score. Avoid doing this if you can continue the existing game, and especially for exploration.
   1, 2, 3, 4 = up, down, left, right (in order); per-game axis/sign -- probe.
   5 = "space" / interact / proceed.
   6 = click(x, y). Single-point click -- coords 0..63 in display        space. Two consecutive ACTION6 calls at different coords are        two INDEPENDENT clicks, never a drag/swipe.

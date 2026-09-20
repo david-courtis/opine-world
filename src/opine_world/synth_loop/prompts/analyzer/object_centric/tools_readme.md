@@ -2,6 +2,10 @@
 
 You can `Read`, `Grep`, `Bash`, and `Task` over everything in this directory.
 
+Python packages available to Bash: numpy, scipy, PIL, cv2, imageio, networkx,
+matplotlib, sympy, pandas, sklearn, skimage, shapely, z3, yaml, requests,
+tqdm, rich.
+
 **run_log.txt** -- monotonic structured log. Section markers:
   `[STEP N]` ... `[/STEP N]`        per env step
   `[SYNTHESIS step=N run=K]`         synthesis events with reward fn
@@ -43,63 +47,8 @@ You can `Read`, `Grep`, `Bash`, and `Task` over everything in this directory.
     "
     ```
 
-**epistemic_matrix.json** -- per-(type, action) cells with frequentist
-  AND Bayesian fields. Cells are pre-sorted by `m['sort_by']` (default
-  `"thompson"`); use directly or re-sort with your own rule.
-  When goal progress has stalled (regime (b) of *Your objective* in the
-  system prompt) THIS FILE selects your plan: the top cells under the
-  active priority are the least-understood `(type, action)` dynamics and
-  your actions must drive them. In that regime it is the objective, not
-  an advisory hint.
-
-  Frequentist fields (formalism §5.2):
-    n        observation count
-    d        distinct context fingerprints seen
-    c        effect consistency in [0,1] (majority-effect fraction)
-    cond     1 if the (type, action) pair shows conditional effects
-    priority heuristic ranking, w1/(1+n) + w2/(1+d) + w3*(1-c)
-
-  Bayesian fields (formalism §5.3, Beta posterior on consistency):
-    alpha, beta        posterior parameters (alpha_0+s, beta_0+(n-s))
-    mu, sigma          posterior mean / std of consistency probability
-    priority_ucb       (1 - mu) + kappa * sigma         (Beta-UCB)
-    priority_thompson  1 - p_tilde, p_tilde ~ Beta(alpha, beta)
-                        -- fresh sample each engine step. HIGHER = more
-                        worth exploring under Thompson sampling.
-
-  Top cells by the active priority ARE your exploration targets when
-  goal progress has stalled:
-    ```
-    python -c "
-    import json
-    m = json.load(open('epistemic_matrix.json'))
-    print('sorted by:', m['sort_by'])
-    for c in m['cells'][:5]:
-        print(c['type'], 'A'+str(c['action_id']),
-              'n='+str(c['n']), 'c='+str(c['c']),
-              'mu='+str(c['mu']), 'sigma='+str(c['sigma']),
-              'pi_th='+str(c['priority_thompson']))
-    "
-    ```
-
-  To draw your OWN Thompson samples (e.g., for tie-breaking or to
-  diversify across multiple action proposals):
-    ```
-    python -c "
-    import json, random
-    m = json.load(open('epistemic_matrix.json'))
-    rng = random.Random(0xC0FFEE)
-    scored = []
-    for c in m['cells']:
-        # 1 - Beta(alpha, beta) sample
-        p_tilde = rng.betavariate(c['alpha'], c['beta'])
-        scored.append((1 - p_tilde, c['type'], c['action_id']))
-    scored.sort(reverse=True)
-    for s, ty, a in scored[:5]:
-        print(f'{s:.3f}  {ty} A{a}')
-    "
-    ```
-
+%%SIGNAL_SECTION%%
+%%GOAL_SECTION%%
 **current_state.json** -- `{ "state": [...], "describe": "...",
   "available_actions": [...], "moves_remaining": <int|null>,
   "step": N, "level": L }`. The current pre-action state.
@@ -277,7 +226,7 @@ shared_model_updates.md** -- shared Markdown artifacts used by both analyzer
   hypotheses come to you. The top candidate per type rises with use
   and is shown to synthesis as the hypothesised role.
 
-## Available actions
+%%AUDIT_SECTION%%## Available actions
 
 Action ids: %%ACTIONS_STR%%
 
@@ -294,6 +243,15 @@ Write your decision to `next_actions.json`:
 Each step is either a bare int (e.g. 3 = ACTION3), or
 ``{"action": "ACTION6", "x": <col>, "y": <row>}`` for a click
 (standard image convention; x = column, y = row).
+Click coordinates are DISPLAY space: the same 0..63 rows/columns you see
+in the ASCII and PNG frames. Object positions printed in the run log
+(STATE_DESC, Diff lines) are in this same display space, so you can
+click the printed coordinates directly. The raw state JSON additionally
+carries camera-grid `x, y, w, h` (game-logic space, a different origin
+and scale); never feed those to ACTION6, use `display_x, display_y,
+display_w, display_h`. A click only registers on a solid
+(non-transparent) pixel of a sprite: aim at a visibly coloured cell,
+not the middle of a hollow shape or its bounding box.
 ACTION6 is only valid when the available action set above includes 6.
 **ACTION6 is a single-point click. ARC-3 has no drag, swipe, or
 source→destination semantics.** Two consecutive ACTION6 calls at

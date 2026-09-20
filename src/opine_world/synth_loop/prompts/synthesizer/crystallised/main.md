@@ -42,6 +42,9 @@ IN-SCOPE TAG COUNT: %%SCOPE_COUNT%%. The verifier ignores any sprite
 whose tag is not in this set, so you do not need to model walls,
 scenery, decorations, or other sprites the analyzer judged irrelevant.
 
+Python packages available: numpy, scipy, PIL, cv2, imageio, networkx,
+matplotlib, sympy, pandas, sklearn, skimage, shapely, z3, yaml.
+
 TASK: Implement transition_function, reward_function, and a conservative
 planner(state, available_actions=None, max_depth=None) -> list[action] | None.
 Run tests, iterate until ALL TESTS PASSED.
@@ -185,21 +188,72 @@ CRITICAL RULES:
    hand them to a Task subagent to read them all in order and report back,
    rather than skipping any.
 
+ARC-AGI-3 GOAL CONTINUITY: the goal never fundamentally changes between
+levels of a game. A correct goal hypothesis is level-agnostic: it must
+account for every reward observed on every completed level. When revising
+the goal hypothesis you may only GENERALIZE it. The revised statement must
+still explain all previous levels' rewards while accommodating the new
+evidence. Never propose a goal that contradicts a previous level's observed
+reward, and never propose one specific to the current level. Prefer the most
+elegant, simple, level-agnostic statement. Do not overcomplicate or reach.
+Level-specific detail belongs in the instantiation of the goal (which
+objects fill which roles this level), not in the goal itself.
+Revisions are ADDITIONS and GENERALIZATIONS only: the core goal
+mechanic established by the first observed reward must remain in
+every later hypothesis. New evidence may widen its conditions or add
+clauses beside it, never replace or delete it.
+
+GROUNDING CROSS-CHECK: when `goal_requirements.json` is present in this
+workspace, it is the disposal record of YOUR previous goal hypothesis --
+an independent pass decomposed `goal_in_english` into executable
+requirement predicates and the replay buffer tested each one at every
+observed reward moment. Read it before revising `reward_function`:
+- `rejected_necessity` entries are DISPROVEN readings of the goal (they
+  failed at a real reward). Your revised reward_function must not encode
+  them.
+- `accepted` entries held at every reward observed so far. Preserve what
+  they express under revision (additions and generalizations only).
+- `injections` are accepted requirements never yet satisfied on the
+  current level: the concrete gap between the goal hypothesis and every
+  state seen so far.
+If your current reward_function disagrees with this record, reconcile
+them: either your code encodes a disproven reading, or the grounded
+hypothesis lags evidence your code already uses. The buffer decides.
+If you conclude the record itself is wrong, do not edit or fight it
+in place -- goal_requirements.json is read-only engine output and is
+wholesale re-derived from YOUR hypothesis: revise goal_in_english
+(regrounding re-runs automatically on any revision, and your revised
+reward_function must still replay every observed reward), and record
+the disputed verdict concretely in world_model.md so the next
+grounding cycle and the exploration agent both see it. A rejected
+predicate killed one implementation, not the idea: propose a
+corrected formulation instead of re-encoding the disproven one.
+
 The reward condition observed in the buffer involves only in-scope
 sprites, which is exactly why the partition was committed. Use the
 analyzer's role labels as semantic guidance; verify exact mechanics
 from the replay buffer.
+
+MOVE-COUNTER MASK. If a thin HUD strip sprite encodes a per-move step/timer
+counter whose per-level quantization you cannot predict cleanly, you MAY
+define `def move_counter_mask(): return [(r, c), ...]` returning ONE
+continuous line of DISPLAY-space cells at most 2 pixels wide along that
+counter region. Sprites whose display rectangle lies entirely inside it are
+excluded from transition verification, so counter ticks neither fail tests
+nor force resynthesis. The verifier rejects any wider mask; it may NOT
+cover real mechanics.
 
 ================================================================
 ξ-REFINEMENT AUDIT (optional but recommended this round)
 ================================================================
 The engine measures ontology error η = how confounded the current
 factorisation is. The matrix and the worst strata live in
-`ontology_error.json`. Under `latest.xi_candidate_ledger` you will
-find a mechanically-enumerated list of ContextFeature candidates
-whose acceptance would reduce η on the top-K worst strata. Each
-candidate carries: feature descriptor, η_old, η_new, η_reduction,
-n_substrata, identified_substrata, accepted.
+`ontology_error.json`. `latest.xi_candidate_ledger.strata` holds one
+entry per scored worst stratum, each with a `candidates` list of
+mechanically-enumerated ContextFeature candidates whose acceptance
+would reduce η there. Each candidate carries: feature descriptor,
+η_old, η_new, η_reduction, n_substrata, identified_substrata,
+accepted. Iterate `ledger["strata"]`, then each `["candidates"]`.
 
 Acceptance criterion (verifier-applied):
   η_reduction ≥ 0.05  AND  identified_substrata ≥ 1

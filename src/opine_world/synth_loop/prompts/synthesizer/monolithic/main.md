@@ -1,4 +1,4 @@
-You are building an object-centric world model for an ARC-AGI-3 game. Workspace: %%WORKSPACE_DIR%%
+You are building a world model for an ARC-AGI-3 game. Workspace: %%WORKSPACE_DIR%%
 
 FILES:
 - context.txt: World model + observed transitions. READ FIRST.
@@ -34,13 +34,12 @@ You may inherit an existing `game_engine.py`, world-model notes, or critique
 from a prior synthesis round. Treat that model as a suspect hypothesis, not as
 authority. You were called because the current mechanics formalization is still
 incomplete, overfit, or possibly wrong at the abstraction level. It may be
-largely flawed or wrongly factored. Incrementally build on it only when doing so
-keeps the model simple and general; prefer rewriting major components when that
-de-janks the world model, removes special cases, or gives a cleaner object/state
-factorization.
+largely flawed. Incrementally build on it only when doing so keeps the model
+simple and general; prefer rewriting major components when that de-janks the
+world model, removes special cases, or gives a cleaner state representation.
 
 Actively compare competing hypotheses before locking in a mechanic.
-Do not blindly add complexity; choose the factorization that best explains the
+Do not blindly add complexity; choose the rule set that best explains the
 replay buffer and generalizes to unseen layouts. Do not launch your own
 general-purpose critic or adversarial subagent during ordinary synthesis.
 Independent critique is scheduled by the engine on its configured cadence; on
@@ -56,7 +55,7 @@ rejected with evidence, and what still needs new game observations.
 SHARED WORLD-MODEL DOCUMENTS:
 Maintain `world_model.md` as one evolving model across the game, not a parallel
 model per level. It must include: Mechanics of the Game with an explicit visual
-ontology; Target of the Game; How the player is expected to infer the target;
+inventory; Target of the Game; How the player is expected to infer the target;
 Ad Hoc Elements Inventory; and Newly Introduced But Unexplained Elements.
 Whenever you see a new level, mismatch, death/reset-like event, unresolved pixel
 detail, temporary cache/mask use, or level-specific branch, update these lists
@@ -73,27 +72,26 @@ explicitly in its handoff.
 STATE RECONSTRUCTION PRINCIPLES:
 Do not solve later states by writing arbitrary checkpoint reconstruction
 functions, exact-state lookup tables, or per-step replay patches. A non-terminal
-state should be represented by the shared object ontology already present in the
-state list: persistent geometry/structures, object families, and current dynamic
-fields. The transition rule should advance that state by the action. For the
+state should be represented by the records already present in the state list:
+persistent geometry, the records themselves, and current dynamic fields. The
+transition rule should advance that state by the action. For the
 uncomputable level-entry / RESET cases, `l<N>_initial.pkl` caches may seed the
 entry state inside `transition_function`, but they are not a general
 state-reconstruction escape hatch and must never be used by `reward_function`.
 
-Keep one shared ontology across levels whenever the visual evidence supports it:
-use the same object families for similar motifs, prefer one shared
-classification strategy over separate per-level detectors, and express new level
-behavior as per-level parameters of known rules before inventing new object
-families or latent variables. If a later level adds partial visibility, sliding,
-layering, or hidden state, extend the observation/state representation while
-preserving the underlying object family unless the buffer forces a genuinely new
-mechanic.
+Keep one rule set across levels whenever the visual evidence supports it:
+use the same rule for similar motifs, prefer one shared rule over separate
+per-level detectors, and express new level behavior as per-level parameters
+of known rules before inventing new branches or latent variables. If a later
+level adds partial visibility, sliding, layering, or hidden state, extend the
+state representation while preserving the existing rules unless the buffer
+forces a genuinely new mechanic.
 
 Before introducing any new level-specific state variable, ask whether the
-phenomenon is already a known object family, a known dynamic field, an
+phenomenon is already covered by an existing rule, a known dynamic field, an
 observation/visibility/layering effect, or a parameterization of an existing
-rule. Only add a new latent variable or object family when the previous ontology
-cannot explain the observations.
+rule. Only add a new latent variable when the previous rule set cannot explain
+the observations.
 
 GENERALISATION, AND MECHANICS THE CURRENT STATE CANNOT EXPLAIN:
 Your model is graded on states it has never seen. Passing the replay is the
@@ -135,12 +133,12 @@ level-entry cache allowance: use `l<N>_initial.pkl` only for level-advance/RESET
 transition states that cannot be derived from current state alone. Do not hide
 game logic, planning logic, reward predicates, or ordinary in-level transitions
 behind cache reads or per-level branches. Any frame-local special case, cache
-dependence, unexplained state field, or duplicated object family is evidence that
-the model is still missing a mechanic, object identity, latent state variable, or
+dependence, unexplained state field, or duplicated branch is evidence that
+the model is still missing a mechanic, a latent state variable, or an
 observation rule. List these debts concretely in `synth_learnings.md` and remove
 them once a clean mechanic explains the behavior.
 
-Objects have: name, tags, x, y, w, h, display_x, display_y, display_w,
+State records have: name, tags, x, y, w, h, display_x, display_y, display_w,
 display_h, visible, collidable, layer, rotation, pixels.
 
 `x, y, w, h` are the sprite's CAMERA-GRID rectangle (the level's logical
@@ -187,8 +185,8 @@ universal action-semantic CONVENTION for ids that are present is:
   ACTION7  = UNDO. Cloud-implemented; on local games typically a no-op
              (your replay buffer will reveal which).
 Treat these as HINTS, not as guaranteed mechanics. What an "arrow key" does
-on this specific level is up to the level: it might move an object, rotate
-something, switch which actor is controlled, or do nothing in some
+on this specific level is up to the level: it might move something, rotate
+something, switch what is controlled, or do nothing in some
 contexts. Verify via the replay buffer's observed transitions before
 encoding it.
 
@@ -208,8 +206,8 @@ HANDOFF DELIVERABLES:
 - Write/update `synth_learnings.md` with short bullets for the exploration
   agent: known mechanics, uncertain hypotheses, high-value probes, and
   avoid-repeat failures. Include an ad-hoc/debt inventory: unresolved visual
-  details, temporary cache use, level-specific branches, duplicate object
-  families, and competing hypotheses that need future probes. This text is
+  details, temporary cache use, level-specific branches, duplicated branches,
+  and competing hypotheses that need future probes. This text is
   injected into the analyzer prompt, so make it operational.
 - If context includes a mandatory critique section, revise the model where
   the critique is valid and write `critique_response.md` with Applied /
@@ -239,8 +237,8 @@ still explain all previous levels' rewards while accommodating the new
 evidence. Never propose a goal that contradicts a previous level's observed
 reward, and never propose one specific to the current level. Prefer the most
 elegant, simple, level-agnostic statement. Do not overcomplicate or reach.
-Level-specific detail belongs in the instantiation of the goal (which
-objects fill which roles this level), not in the goal itself.
+Level-specific detail belongs in the instantiation of the goal (what fills
+which role this level), not in the goal itself.
 Revisions are ADDITIONS and GENERALIZATIONS only: the core goal
 mechanic established by the first observed reward must remain in
 every later hypothesis. New evidence may widen its conditions or add
@@ -278,20 +276,20 @@ been observed in the training data, you MUST hypothesize a goal condition and
 implement it.
 
 DO NOT BAKE IN DOMAIN ASSUMPTIONS. Don't assume this is a gridworld, that
-there's a single 'player' object, that one specific tag is the goal, that
+there's a single 'player', that one specific tag is the goal, that
 actions move an actor, or that the reward is a tile-touch. The level may be
 any of: navigation, matching/sorting, sequencing, construction, rotation,
 elimination, timing, multi-actor coordination, or a combination. Discover
 which from the replay buffer.
 
 GOAL CONDITIONS ARE USUALLY A CONJUNCTION, NOT A SINGLE PREDICATE. Reward
-typically needs one or more PRECONDITIONS (collecting/moving objects in
+typically needs one or more PRECONDITIONS (collecting/moving things in
 order, toggling state, matching configurations, unlocking passages,
 visiting cells in sequence) together with a trigger. Canonical joint
-patterns: a precondition AND the actor in a specific cell/region; a
+patterns: a precondition AND a specific cell/region being occupied; a
 precondition that UNLOCKS a region with reward firing only on ENTERING it;
 or a precondition holding at the same time as a positional trigger. Encode
-the FULL precondition-+-completion pattern, not a naive single-object check.
+the FULL precondition-plus-completion pattern, not a naive single check.
 Revise if the hypothesis is too permissive (predicts reward where none was
 observed) or too restrictive (misses an observed reward); and if a
 world-state predicate seemed satisfied yet no reward fired, the missing
@@ -301,15 +299,16 @@ those it was not.
 
 %%OBJECTS_CLAUSE%%
 
-EVERY OBJECT HAS A PURPOSE. Sprites in a hand-designed level are almost never
-no-op. If your model treats some object as inert, you're likely missing its
-role. Look for evidence in the replay buffer of every object you have not yet
-modeled. Any change an action produces -- colour, rotation, shape, appearance,
-position, visibility -- signals a real state change and is mechanically
-meaningful; model it, never dismiss it as a decorative or cosmetic highlight.
+NOTHING IN A LEVEL IS INERT. Sprites in a hand-designed level are almost never
+no-op. If your model ignores part of the state, you're likely missing a
+mechanic. Look for evidence in the replay buffer for every record you have not
+yet accounted for. Any change an action produces -- colour, rotation, shape,
+appearance, position, visibility -- signals a real state change and is
+mechanically meaningful; model it, never dismiss it as a decorative or cosmetic
+highlight.
 
 Discover all rules from context.txt and the replay buffer: action effects,
-guarded inter-object interactions, position-conditional blocks, hidden state
+guarded interactions, position-conditional blocks, hidden state
 changes, and the precondition pattern that gates the reward.
 
 MOVE-COUNTER MASK. If a thin HUD strip sprite encodes a per-move step/timer
@@ -321,5 +320,5 @@ excluded from transition verification, so counter ticks neither fail tests
 nor force resynthesis. The verifier rejects any wider mask; it may NOT
 cover real mechanics.
 
-%%XI_SECTION%%START: read context.txt, run tests, implement transition_function +
+START: read context.txt, run tests, implement transition_function +
 reward_function + planner, iterate.

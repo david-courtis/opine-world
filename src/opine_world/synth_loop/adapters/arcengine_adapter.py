@@ -27,6 +27,14 @@ def _load_prompt_loader():
 load_prompt = _load_prompt_loader()
 
 
+def _dpos(o: dict) -> tuple[int, int]:
+    """Display position of a state entry, falling back to grid coords."""
+    return (
+        int(o.get("display_x", o.get("x", 0))),
+        int(o.get("display_y", o.get("y", 0))),
+    )
+
+
 class ArcEngineEnv:
     """Wraps an arcengine ARCBaseGame to provide the EnvironmentInterface."""
 
@@ -40,6 +48,7 @@ class ArcEngineEnv:
         self._last_during_frames: list = []
         self._last_intermediate_states: list[list[dict]] = []
         self._last_after_frame = None
+        self._last_click_grid: tuple[int, int] | None = None
 
     def reset(self) -> list[dict]:
         self.game.full_reset()
@@ -91,6 +100,11 @@ class ArcEngineEnv:
             return self.extract_state(), 0.0, False
 
         level_before = self.game.level_index
+
+        if action_id == 6 and click_x is not None and click_y is not None:
+            self._last_click_grid = self.display_to_grid(click_x, click_y)
+        else:
+            self._last_click_grid = None
 
         try:
             self._last_before_frame = self._render_canonical_frame()
@@ -191,18 +205,46 @@ class ArcEngineEnv:
         except Exception:
             return None
 
-    def extract_state(self) -> list[dict]:
-        """Extract typed objects from arcengine sprite state including rotation and pixels.
-        Full-screen backgrounds (w >= 64) are skipped to avoid bloating state records.
+    def camera_transform(self) -> dict[str, int]:
+        """Current grid->display transform: display = (grid - cam) * scale + pad.
+
+        Mirrors Camera.render letterboxing and display_to_grid, so display
+        coords land on the same pixels the 64x64 frame (and ACTION6 clicks)
+        use. Falls back to identity if the camera is unavailable.
         """
-        import numpy as np
         try:
             cam = self.game.camera
             cam_w = int(cam.width) if cam.width > 0 else 64
             cam_h = int(cam.height) if cam.height > 0 else 64
             scale = max(1, min(64 // cam_w, 64 // cam_h))
+            return {
+                "scale": scale,
+                "pad_x": (64 - cam_w * scale) // 2,
+                "pad_y": (64 - cam_h * scale) // 2,
+                "cam_x": int(cam.x),
+                "cam_y": int(cam.y),
+            }
         except Exception:
-            scale = 1
+            return {"scale": 1, "pad_x": 0, "pad_y": 0, "cam_x": 0, "cam_y": 0}
+
+    def display_to_grid(self, x: int, y: int) -> tuple[int, int] | None:
+        """Map a display/click coordinate back to grid coords (None in letterbox)."""
+        try:
+            return self.game.camera.display_to_grid(int(x), int(y))
+        except Exception:
+            return None
+
+    def extract_state(self) -> list[dict]:
+        """Extract typed objects from arcengine sprite state including rotation and pixels.
+        Full-screen backgrounds (w >= 64) are skipped to avoid bloating state records.
+
+        x/y/w/h are grid coords (game logic space). display_x/y/w/h are the
+        same rectangle in 64x64 display space, the space of rendered frames
+        and ACTION6 clicks.
+        """
+        import numpy as np
+        t = self.camera_transform()
+        scale = t["scale"]
         objects = []
         for s in self.game.current_level._sprites:
             if s.width >= 64 and s.height >= 64:
@@ -214,8 +256,8 @@ class ArcEngineEnv:
                 "y": s.y,
                 "w": s.width,
                 "h": s.height,
-                "display_x": int(s.x) * scale,
-                "display_y": int(s.y) * scale,
+                "display_x": (int(s.x) - t["cam_x"]) * scale + t["pad_x"],
+                "display_y": (int(s.y) - t["cam_y"]) * scale + t["pad_y"],
                 "display_w": int(s.width) * scale,
                 "display_h": int(s.height) * scale,
                 "visible": s.is_visible,
@@ -245,7 +287,10 @@ class ArcEngineEnv:
         return np.asarray(frame).copy()
 
     def describe_state(self, state: list[dict]) -> str:
-        """Compact description skipping wall tiles."""
+        """Compact description skipping wall tiles.
+
+        Positions are display coords, matching the frames and ACTION6 clicks.
+        """
         parts = []
         n_walls = 0
         for o in state:
@@ -257,7 +302,8 @@ class ArcEngineEnv:
             tags = ",".join(o.get("tags", []))
             tag_str = f"[{tags}]" if tags else ""
             vis = " (hidden)" if not o.get("visible", True) else ""
-            parts.append(f"{o['name']}{tag_str}({o['x']},{o['y']}){vis}")
+            dx, dy = _dpos(o)
+            parts.append(f"{o['name']}{tag_str}({dx},{dy}){vis}")
 
         if n_walls:
             parts.append(f"[{n_walls} wall tiles]")
@@ -284,25 +330,29 @@ class ArcEngineEnv:
             if b_pos != a_pos:
                 b_set, a_set = set(b_pos), set(a_pos)
                 removed, added = b_set - a_set, a_set - b_set
+                b_disp = {(o["x"], o["y"]): _dpos(o) for o in b_list}
+                a_disp = {(o["x"], o["y"]): _dpos(o) for o in a_list}
 
                 if len(removed) == 1 and len(added) == 1:
-                    r, a = list(removed)[0], list(added)[0]
+                    r = b_disp[list(removed)[0]]
+                    a = a_disp[list(added)[0]]
                     tags = b_list[0].get("tags", [])
                     tag_str = f" [{','.join(tags)}]" if tags else ""
                     diffs.append(f"{name}{tag_str} moved ({r[0]},{r[1]})->({a[0]},{a[1]})")
                 else:
                     if removed:
-                        diffs.append(f"{name} disappeared from {removed}")
+                        diffs.append(f"{name} disappeared from {sorted(b_disp[p] for p in removed)}")
                     if added:
-                        diffs.append(f"{name} appeared at {added}")
+                        diffs.append(f"{name} appeared at {sorted(a_disp[p] for p in added)}")
 
             for bo, ao in zip(b_list, a_list):
+                adx, ady = _dpos(ao)
                 if bo.get("visible") != ao.get("visible"):
                     v = "visible" if ao.get("visible") else "hidden"
-                    diffs.append(f"{name} at ({ao['x']},{ao['y']}) became {v}")
+                    diffs.append(f"{name} at ({adx},{ady}) became {v}")
                 if bo.get("rotation") != ao.get("rotation"):
                     diffs.append(
-                        f"{name} at ({ao['x']},{ao['y']}) rotation "
+                        f"{name} at ({adx},{ady}) rotation "
                         f"{bo.get('rotation', 0)}->{ao.get('rotation', 0)}"
                     )
                 bp = bo.get("pixels")
@@ -322,11 +372,51 @@ class ArcEngineEnv:
                         n += abs(bh * bw - ah * aw)
                     if n > 0:
                         diffs.append(
-                            f"{name} at ({ao['x']},{ao['y']}) internal "
+                            f"{name} at ({adx},{ady}) internal "
                             f"pattern changed ({n} cells)"
                         )
 
         return "; ".join(diffs) if diffs else "Nothing changed"
+
+
+SYNTH_STRUCTURES = ("free", "oop", "factored", "monolithic")
+
+# Placeholders the sprite test runner carries, and the arm each is armed for.
+# Every consumer must render through render_test_runner rather than
+# substituting by hand: two separate outages have been caused by a new
+# placeholder reaching an exec that only knew about the old one.
+# ONE registry for every placeholder the runner carries. A flag mapped to a
+# synth-mode name is armed when that mode is selected; None means the flag is
+# orthogonal to --synth-mode and render_test_runner resolves it from its own
+# argument. Keeping a second registry is what broke consumers the last time a
+# placeholder was added, so there is exactly one.
+_RUNNER_ARM_FLAGS = {
+    "__MONOLITHIC_STRUCTURE__": "monolithic",
+    "__FACTORED_STRUCTURE__": "factored",
+    "__NO_NATURAL_LANGUAGE__": None,
+}
+
+
+def render_test_runner(
+    structure: str = "free", no_natural_language: bool = False,
+) -> str:
+    """The sprite test runner with every arm flag resolved."""
+    _check_structure(structure)
+    out = _TEST_RUNNER_SCRIPT
+    for token, arm in _RUNNER_ARM_FLAGS.items():
+        if arm is None:
+            continue
+        out = out.replace(token, repr(structure == arm))
+    return out.replace(
+        "__NO_NATURAL_LANGUAGE__", repr(bool(no_natural_language)),
+    )
+
+
+def _check_structure(structure: str) -> None:
+    if structure not in SYNTH_STRUCTURES:
+        raise ValueError(
+            f"structure must be one of {SYNTH_STRUCTURES}, got {structure!r}"
+        )
 
 
 class ArcEngineAdapter(DomainAdapter):
@@ -356,8 +446,12 @@ class ArcEngineAdapter(DomainAdapter):
         with open(workspace_dir / "initial_state.json", "w") as f:
             json.dump(initial_state, f, indent=2)
 
-    def write_test_runner(self, workspace_dir: Path) -> None:
-        script = _TEST_RUNNER_SCRIPT
+    def write_test_runner(
+        self, workspace_dir: Path, structure: str = "free",
+        no_natural_language: bool = False,
+    ) -> None:
+        _check_structure(structure)
+        script = render_test_runner(structure, no_natural_language)
         (workspace_dir / "test_runner.py").write_text(script)
 
     def write_test_runner_frames(self, workspace_dir: Path) -> None:
@@ -366,25 +460,19 @@ class ArcEngineAdapter(DomainAdapter):
         )
 
     def format_code_stub(self, structure: str = "free") -> str:
-        """Return the initial game_engine.py template for "free", "oop", or "monolithic" structure."""
+        """Return the initial game_engine.py template for the given structure."""
+        _check_structure(structure)
         if structure == "free":
             return _CODE_STUB_FREE
         if structure == "monolithic":
             return _CODE_STUB_MONO
-        if structure == "oop":
-            return _CODE_STUB
-        raise ValueError(
-            f"structure must be 'free', 'oop', or 'monolithic', "
-            f"got {structure!r}"
-        )
+        if structure == "factored":
+            return _CODE_STUB_FACTORED
+        return _CODE_STUB
 
     def format_code_stub_frames(self, structure: str = "free") -> str:
         """Return the frames-only game_engine.py template."""
-        if structure not in ("free", "oop", "monolithic"):
-            raise ValueError(
-                f"structure must be 'free', 'oop', or 'monolithic', "
-                f"got {structure!r}"
-            )
+        _check_structure(structure)
         if structure == "oop":
             return _CODE_STUB_FRAMES_OOP
         if structure == "free":
@@ -397,23 +485,47 @@ class ArcEngineAdapter(DomainAdapter):
         test_runner_path,
         project_root,
         structure: str = "free",
+        include_xi: bool = True,
+        include_fluents: bool = False,
     ) -> str:
-        if structure not in ("free", "oop", "monolithic"):
-            raise ValueError(
-                f"structure must be 'free', 'oop', or 'monolithic', "
-                f"got {structure!r}"
+        """Sprite-mode synthesis prompt.
+
+        ``monolithic`` is the structural ablation arm and reads from its own
+        prompt tree: the object-ontology prescriptions, the xi audit, and the
+        fluent contract are the factorization apparatus under test, so the
+        arm strips all three as one bundle and cannot be half-configured by
+        the caller's include_* flags.
+        """
+        _check_structure(structure)
+        if structure == "monolithic":
+            return (
+                load_prompt("synthesizer/monolithic/main.md")
+                .replace("%%WORKSPACE_DIR%%", str(workspace_dir))
+                .replace("%%TEST_RUNNER_PATH%%", str(test_runner_path))
+                .replace(
+                    "%%RULES_BLOCK%%",
+                    load_prompt("synthesizer/monolithic/rules.txt"),
+                )
+                .replace(
+                    "%%OBJECTS_CLAUSE%%",
+                    load_prompt("synthesizer/monolithic/objects_clause.txt"),
+                )
             )
         rules_block = load_prompt(f"synthesizer/object_centric/rules_{structure}.txt")
         objects_clause = load_prompt("synthesizer/object_centric/objects_clause.txt")
-        closing = load_prompt("synthesizer/object_centric/closing.txt")
-        return self._format_synthesis_prompt_with_blocks(
+        prompt = self._format_synthesis_prompt_with_blocks(
             workspace_dir=workspace_dir,
             test_runner_path=test_runner_path,
             project_root=project_root,
             rules_block=rules_block,
             objects_clause=objects_clause,
-            closing=closing,
+            include_xi=include_xi,
         )
+        if include_fluents:
+            prompt += "\n" + load_prompt(
+                "synthesizer/object_centric/fluents_contract.txt"
+            )
+        return prompt
 
     def write_test_runner_crystallised(
         self,
@@ -438,9 +550,11 @@ class ArcEngineAdapter(DomainAdapter):
         structure: str = "oop",
     ) -> str:
         """Synthesis prompt for post-crystallisation scoped world model synthesis."""
+        # 'factored' is a sprite-mode, non-crystallised ablation arm only:
+        # neither of these trees carries a matching classes_*.txt.
         if structure not in ("free", "oop", "monolithic"):
             raise ValueError(
-                f"structure must be 'free', 'oop', or 'monolithic', "
+                f"structure must be 'free', 'oop', or 'monolithic' here, "
                 f"got {structure!r}"
             )
         classes_line = load_prompt(
@@ -475,38 +589,88 @@ class ArcEngineAdapter(DomainAdapter):
             .replace("%%CLASSES_LINE%%", classes_line)
         )
 
+    _ETA_ARTIFACT_LINES = (
+        "- ontology_error.json: Optional previous spriteless ETA report, when\n"
+        "  available. Read it if present to see which induced object types/actions\n"
+        "  remain confounded.\n"
+        "- spriteless_object_abstraction.json: Optional summary of your previous\n"
+        "  `extract_objects(frame)` output, when available."
+    )
+    _ETA_AUDIT_SENTENCE = (
+        " Read\n"
+        "`ontology_error.json` and `spriteless_object_abstraction.json` when present:\n"
+        "use the eta/confounding report to ask whether the model is missing a state\n"
+        "variable, object split, relation, layer, context feature, or action-conditioned\n"
+        "effect."
+    )
+    _ETA_MATRIX_NOTE = (
+        " The engine also uses it\n"
+        "  after your turn to build the spriteless ETA matrix."
+    )
+
     def format_synthesis_prompt_frames(
         self,
         workspace_dir,
         test_runner_path,
         project_root,
         structure: str = "oop",
+        include_eta: bool = True,
+        include_xi: bool = False,
+        include_fluents: bool = False,
     ) -> str:
-        """Synthesis prompt for frames-only (raw 64x64 palette grid) world model."""
+        """Synthesis prompt for frames-only (raw 64x64 palette grid) world model.
+
+        include_eta=False strips every reference to the spriteless ETA
+        machinery: the ablated frames arm must not receive epistemic
+        vocabulary or the eta rationale for extract_objects. include_xi and
+        include_fluents append the same xi audit and fluent contract as the
+        sprite-mode prompt. Both read the objects from extract_objects."""
+        # 'factored' is a sprite-mode, non-crystallised ablation arm only:
+        # neither of these trees carries a matching classes_*.txt.
         if structure not in ("free", "oop", "monolithic"):
             raise ValueError(
-                f"structure must be 'free', 'oop', or 'monolithic', "
+                f"structure must be 'free', 'oop', or 'monolithic' here, "
                 f"got {structure!r}"
             )
         classes_line = load_prompt(f"synthesizer/frames/classes_{structure}.txt")
-        return (
+        prompt = (
             load_prompt("synthesizer/frames/main.md")
             .replace("%%WORKSPACE_DIR%%", str(workspace_dir))
             .replace("%%TEST_RUNNER_PATH%%", str(test_runner_path))
             .replace("%%CLASSES_LINE%%", classes_line)
+            .replace("%%ETA_ARTIFACT_LINES%%",
+                     self._ETA_ARTIFACT_LINES if include_eta else "")
+            .replace("%%ETA_AUDIT_SENTENCE%%",
+                     self._ETA_AUDIT_SENTENCE if include_eta else "")
+            .replace("%%ETA_MATRIX_NOTE%%",
+                     self._ETA_MATRIX_NOTE if include_eta else "")
         )
+        if include_eta and include_xi:
+            prompt += "\n" + load_prompt(
+                "synthesizer/object_centric/xi_audit.txt"
+            )
+        if include_eta and include_fluents:
+            prompt += "\n" + load_prompt(
+                "synthesizer/object_centric/fluents_contract.txt"
+            )
+        return prompt
 
     def _format_synthesis_prompt_with_blocks(
         self, *, workspace_dir, test_runner_path, project_root,
-        rules_block: str, objects_clause: str, closing: str,
+        rules_block: str, objects_clause: str,
+        include_xi: bool = True,
     ) -> str:
+        xi_section = (
+            load_prompt("synthesizer/object_centric/xi_audit.txt")
+            if include_xi else ""
+        )
         return (
             load_prompt("synthesizer/object_centric/main.md")
             .replace("%%WORKSPACE_DIR%%", str(workspace_dir))
             .replace("%%TEST_RUNNER_PATH%%", str(test_runner_path))
             .replace("%%RULES_BLOCK%%", rules_block)
             .replace("%%OBJECTS_CLAUSE%%", objects_clause)
-            .replace("%%CLOSING%%", closing)
+            .replace("%%XI_SECTION%%", xi_section)
         )
 
     def format_goal_description(self, mission=None, **kwargs):
@@ -535,7 +699,7 @@ class ArcEngineAdapter(DomainAdapter):
 
 _TEST_RUNNER_SCRIPT = r'''#!/usr/bin/env python3
 """Test runner: structured state + reward verification for ARC-AGI-3."""
-import sys, os, re, pickle, json, importlib.util, copy
+import sys, os, re, ast, io, tokenize, pickle, json, importlib.util, copy
 
 # Patterns that indicate the canonical lookup-table cheat: the model
 # reads replay_buffer.pkl (the verifier's input data) and uses it as a
@@ -592,9 +756,222 @@ def _check_static_no_file_io(code_path):
         if m is not None:
             line_no = cleaned[:m.start()].count("\n") + 1
             return (line_no, message)
+    # reward_function must not read level-entry caches: recognizing the
+    # goal as "state equals the next level's cached entry" passes replay
+    # trivially while encoding nothing about the goal mechanic.
+    rf_match = re.search(
+        r"def\s+reward_function\s*\([^\n]*\n(.*?)(?=\n(?:def |class |\Z))",
+        cleaned, flags=re.DOTALL,
+    )
+    if rf_match:
+        rf_body = rf_match.group(1)
+        cheat = (
+            (r"_L\d+_INITIAL",
+             "reward_function references a level-initial cache "
+             "(_L<N>_INITIAL). Goal predicate must be derivable from "
+             "observable state, not from cached future states."),
+            (r"l\d+_initial\.pkl",
+             "reward_function loads a level-initial pkl."),
+            (r"_load_level_initial",
+             "reward_function calls _load_level_initial."),
+        )
+        for pat, msg in cheat:
+            m = re.search(pat, rf_body)
+            if m is not None:
+                line_no = cleaned[:rf_match.start() + m.start()].count("\n") + 1
+                return (line_no, msg)
     return None
 
+MONOLITHIC_STRUCTURE = __MONOLITHIC_STRUCTURE__
+FACTORED_STRUCTURE = __FACTORED_STRUCTURE__
+NO_NATURAL_LANGUAGE = __NO_NATURAL_LANGUAGE__
+
+# One rule is not a factorization, so the registry must name at least two
+# types before the arm can be said to have complied.
+MIN_TYPE_RULES = 2
+# Decision points transition_function may hold ITSELF. A dispatcher needs a
+# loop, a registry lookup, an unknown-type fallback, and an interaction and
+# ordering pass. It does not need per-type logic, which is what a larger
+# budget would let it hide.
+MAX_DISPATCH_DECISIONS = 12
+_DECISION_NODES = (
+    ast.If, ast.For, ast.While, ast.IfExp, ast.Assert,
+    ast.comprehension, ast.ExceptHandler, ast.BoolOp, ast.Match,
+)
+
+# Module-scope callables the monolithic arm is allowed to define. Everything
+# else would be a helper carrying transition logic, which is exactly the
+# factorization the arm ablates.
+_MONO_ALLOWED_DEFS = (
+    "transition_function", "reward_function", "planner",
+    "move_counter_mask", "_load_level_initial",
+)
+
+
+def _check_no_natural_language(code_path):
+    # Under the natural-language ablation the model must not write comments or
+    # docstrings at all. Rejecting is not the same as stripping them after the
+    # fact: a strip lets the model keep writing prose and quietly deletes it,
+    # so the constraint never actually binds on the author.
+    if not NO_NATURAL_LANGUAGE:
+        return None
+    try:
+        with open(code_path) as f:
+            src = f.read()
+    except Exception as e:
+        return (0, "could not read " + str(code_path) + ": " + str(e))
+    try:
+        toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError) as e:
+        return (0, "could not tokenize: " + str(e))
+    for tok in toks:
+        if tok.type == tokenize.COMMENT:
+            return (tok.start[0], "comment: " + tok.string.strip()[:60])
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as e:
+        return (e.lineno or 0, "syntax error: " + str(e))
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.FunctionDef,
+                                 ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        body = getattr(node, "body", None)
+        if not body:
+            continue
+        first = body[0]
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) \
+                and isinstance(first.value.value, str):
+            return (first.lineno, "docstring: "
+                    + first.value.value.strip()[:60])
+    return None
+
+
+def _check_factored_structure(code_path):
+    # Enforce the per-type dispatch contract, symmetric to the monolithic
+    # gate. Without it the factored arm is a request the model may silently
+    # ignore while the control arm is hard gated, and any difference between
+    # them is partly a difference in how binding their instructions were.
+    # Returns None if clean, a (line_no, message) tuple otherwise.
+    if not FACTORED_STRUCTURE:
+        return None
+    try:
+        with open(code_path) as f:
+            src = f.read()
+    except Exception as e:
+        return (0, "could not read " + str(code_path) + ": "
+                + type(e).__name__ + ": " + str(e))
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as e:
+        return (e.lineno or 0, "syntax error: " + str(e))
+
+    tf = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "transition_function":
+            tf = node
+            break
+    if tf is None:
+        return (0, "no transition_function")
+
+    # Count only this function's OWN decisions: a nested def is a rule, not
+    # dispatch, and charging its branches here would punish factoring.
+    nested = set()
+    for sub in ast.walk(tf):
+        if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) and sub is not tf:
+            for inner in ast.walk(sub):
+                nested.add(id(inner))
+    n_dec = 0
+    for sub in ast.walk(tf):
+        if id(sub) in nested or sub is tf:
+            continue
+        if isinstance(sub, _DECISION_NODES):
+            n_dec += 1
+    if n_dec > MAX_DISPATCH_DECISIONS:
+        return (tf.lineno,
+                "transition_function holds " + str(n_dec)
+                + " decision points, above the dispatch budget of "
+                + str(MAX_DISPATCH_DECISIONS)
+                + ". In the factored arm the per-type logic belongs in that "
+                + "type's rule, not in the dispatcher")
+    return None
+
+
+def _check_factored_registry(module):
+    # Runtime half of the factored gate: the registry has to exist and be
+    # populated, which only importing can establish.
+    if not FACTORED_STRUCTURE:
+        return None
+    reg = getattr(module, "TYPE_RULES", None)
+    if reg is None:
+        return "no TYPE_RULES registry at module scope"
+    if not isinstance(reg, dict):
+        return "TYPE_RULES must be a dict, got " + type(reg).__name__
+    if len(reg) < MIN_TYPE_RULES:
+        return ("TYPE_RULES names " + str(len(reg)) + " type(s), below the "
+                + "minimum of " + str(MIN_TYPE_RULES)
+                + "; one rule is not a factorization")
+    bad = [k for k, v in reg.items() if not callable(v)]
+    if bad:
+        return "TYPE_RULES entries are not callable: " + ", ".join(map(str, bad[:5]))
+    return None
+
+
+def _check_monolithic_structure(code_path):
+    # Enforce the single-transition_function limit. Returns None if clean,
+    # a (line_no, message) tuple otherwise.
+    if not MONOLITHIC_STRUCTURE:
+        return None
+    try:
+        with open(code_path) as f:
+            src = f.read()
+    except Exception as e:
+        return (0, "could not read " + str(code_path) + ": "
+                + type(e).__name__ + ": " + str(e))
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as e:
+        return (e.lineno or 0, "syntax error: " + str(e))
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            return (node.lineno, "module-scope class " + node.name
+                    + " is not allowed in the monolithic arm")
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name not in _MONO_ALLOWED_DEFS:
+                return (node.lineno, "module-scope function " + node.name
+                        + " is not allowed in the monolithic arm; the "
+                        + "transition logic must live inline in "
+                        + "transition_function")
+    return None
+
+
 def load_engine(code_path):
+    # Natural-language ablation gate.
+    violation = _check_no_natural_language(code_path)
+    if violation is not None:
+        line_no, message = violation
+        return None, (
+            "STATIC REJECTION (natural language): line " + str(line_no)
+            + ": " + message + ". This run forbids comments and docstrings "
+            "in game_engine.py. Delete them and name things so the code "
+            "reads without them."
+        )
+    # Structural gate for the factored ablation arm.
+    violation = _check_factored_structure(code_path)
+    if violation is not None:
+        line_no, message = violation
+        return None, (
+            "STATIC REJECTION (factored structure): line "
+            + str(line_no) + ": " + message + "."
+        )
+    # Structural gate for the monolithic ablation arm.
+    violation = _check_monolithic_structure(code_path)
+    if violation is not None:
+        line_no, message = violation
+        return None, (
+            "STATIC REJECTION (monolithic structure): line "
+            + str(line_no) + ": " + message + ". Allowed module-scope "
+            "callables: " + ", ".join(_MONO_ALLOWED_DEFS) + "."
+        )
     # Static anti-cheat gate: reject before importing.
     violation = _check_static_no_file_io(code_path)
     if violation is not None:
@@ -619,9 +996,59 @@ def load_engine(code_path):
     if not hasattr(module, "reward_function"): missing.append("reward_function")
     if missing:
         return None, f"Missing: {', '.join(missing)}"
+    reg_problem = _check_factored_registry(module)
+    if reg_problem is not None:
+        return None, "STATIC REJECTION (factored structure): " + reg_problem + "."
     return module, None
 
-def compare_states(predicted, actual, wall_tags=("ihdgageizm",)):
+def counter_mask(engine):
+    """Read+validate game_engine.move_counter_mask() (optional). Returns a set
+    of display-space (row, col) cells; sprites whose display rectangle lies
+    entirely inside it are EXCLUDED from transition verification.
+
+    Fail closed: only ONE continuous line at most 2px wide is honored (the
+    move-counter HUD strip). A model may NOT mask an arbitrary region to dodge
+    verification of real mechanics."""
+    fn = getattr(engine, "move_counter_mask", None)
+    if not callable(fn):
+        return set()
+    try:
+        pts = {(int(r), int(c)) for (r, c) in (fn() or [])}
+    except Exception:
+        return set()
+    if not pts:
+        return set()
+    rows = {r for r, _ in pts}; cols = {c for _, c in pts}
+    rspan = max(rows) - min(rows) + 1; cspan = max(cols) - min(cols) + 1
+    if min(rspan, cspan) > 2:
+        return set()
+    long_span = max(rspan, cspan)
+    if len(pts) > 2 * long_span:
+        return set()
+    long_idx = sorted(cols if cspan >= rspan else rows)
+    if long_idx[-1] - long_idx[0] + 1 != len(long_idx):
+        return set()
+    return pts
+
+
+def _rect_in_mask(o, mask):
+    if not mask:
+        return False
+    try:
+        x = int(o.get("display_x", o.get("x", 0)))
+        y = int(o.get("display_y", o.get("y", 0)))
+        w = int(o.get("display_w", o.get("w", 1)) or 1)
+        h = int(o.get("display_h", o.get("h", 1)) or 1)
+    except Exception:
+        return False
+    for yy in range(y, y + h):
+        for xx in range(x, x + w):
+            if (yy, xx) not in mask:
+                return False
+    return True
+
+
+def compare_states(predicted, actual, wall_tags=("ihdgageizm",), mask=None):
     """Compare non-wall objects by name, position, visibility, rotation,
     AND internal pixel content.
 
@@ -630,7 +1057,8 @@ def compare_states(predicted, actual, wall_tags=("ihdgageizm",)):
     Sprite-internal transformations (HUD rotates, cells toggle, animation
     frame advances) leave (x, y, w, h, visible) unchanged but produce
     pixel-level differences. Without including pixels here, those
-    transformations are invisible to CEGIS.
+    transformations are invisible to CEGIS. The only exemption is the
+    validated move-counter mask: sprites fully inside that strip.
     """
     def _pixel_hash(p):
         if p is None:
@@ -650,7 +1078,7 @@ def compare_states(predicted, actual, wall_tags=("ihdgageizm",)):
             tags = o.get("tags", [])
             if any(t in tags for t in wall_tags):
                 continue
-            if o.get("w", 0) >= 64:
+            if _rect_in_mask(o, mask):
                 continue
             objs[_key(o)] = (
                 o["x"], o["y"],
@@ -692,6 +1120,10 @@ def main():
         print(f"LOAD_ERROR: {err}")
         sys.exit(1)
 
+    MASK = counter_mask(engine)
+    if MASK:
+        print(f"MASK: move-counter mask active ({len(MASK)} cells excluded)")
+
     buffer_path = os.environ.get("OOP_EVAL_BUFFER")
     if not buffer_path:
         buffer_path = os.path.join(workspace, "replay_buffer.pkl")
@@ -724,7 +1156,7 @@ def main():
                                  "type": "transition", "error": "returned None"})
                 continue
 
-            ok, diff = compare_states(predicted, trans["after_state"])
+            ok, diff = compare_states(predicted, trans["after_state"], mask=MASK)
             if ok:
                 trans_passed += 1
             else:
@@ -928,7 +1360,50 @@ def _in_scope(obj, scope=SCOPE_TAGS):
     return False
 
 
-def compare_states_scoped(predicted, actual):
+def counter_mask(engine):
+    """Read+validate game_engine.move_counter_mask() (optional). Sprites whose
+    display rectangle lies entirely inside the validated strip are excluded
+    from verification. Fail closed: one continuous line at most 2px wide."""
+    fn = getattr(engine, "move_counter_mask", None)
+    if not callable(fn):
+        return set()
+    try:
+        pts = {(int(r), int(c)) for (r, c) in (fn() or [])}
+    except Exception:
+        return set()
+    if not pts:
+        return set()
+    rows = {r for r, _ in pts}; cols = {c for _, c in pts}
+    rspan = max(rows) - min(rows) + 1; cspan = max(cols) - min(cols) + 1
+    if min(rspan, cspan) > 2:
+        return set()
+    long_span = max(rspan, cspan)
+    if len(pts) > 2 * long_span:
+        return set()
+    long_idx = sorted(cols if cspan >= rspan else rows)
+    if long_idx[-1] - long_idx[0] + 1 != len(long_idx):
+        return set()
+    return pts
+
+
+def _rect_in_mask(o, mask):
+    if not mask:
+        return False
+    try:
+        x = int(o.get("display_x", o.get("x", 0)))
+        y = int(o.get("display_y", o.get("y", 0)))
+        w = int(o.get("display_w", o.get("w", 1)) or 1)
+        h = int(o.get("display_h", o.get("h", 1)) or 1)
+    except Exception:
+        return False
+    for yy in range(y, y + h):
+        for xx in range(x, x + w):
+            if (yy, xx) not in mask:
+                return False
+    return True
+
+
+def compare_states_scoped(predicted, actual, mask=None):
     """Compare ONLY in-scope sprites by name, position, visibility,
     rotation, and internal pixel content. Out-of-scope sprites are
     ignored entirely (pass-through semantics)."""
@@ -945,7 +1420,7 @@ def compare_states_scoped(predicted, actual):
         for o in state:
             if not _in_scope(o):
                 continue
-            if o.get("w", 0) >= 64:
+            if _rect_in_mask(o, mask):
                 continue
             objs[_key(o)] = (
                 o["x"], o["y"],
@@ -985,6 +1460,10 @@ def main():
         print(f"LOAD_ERROR: {err}")
         sys.exit(1)
 
+    MASK = counter_mask(engine)
+    if MASK:
+        print(f"MASK: move-counter mask active ({len(MASK)} cells excluded)")
+
     buffer_path = os.environ.get("OOP_EVAL_BUFFER")
     if not buffer_path:
         buffer_path = os.path.join(workspace, "replay_buffer.pkl")
@@ -1010,7 +1489,7 @@ def main():
                 failures.append({"i": i, "t": trans["timestep"], "a": trans["action_name"],
                                  "type": "transition", "error": "returned None"})
                 continue
-            ok, diff = compare_states_scoped(predicted, trans["after_state"])
+            ok, diff = compare_states_scoped(predicted, trans["after_state"], mask=MASK)
             if ok:
                 trans_passed += 1
             else:
@@ -1732,7 +2211,10 @@ def planner(frame, available_actions=None, max_depth=None):
 _CODE_STUB_MONO = '''# ARC-AGI-3 -- Monolithic world model
 # Read context.txt for observed transitions and goal.
 # A SINGLE transition_function implements the full state transition.
-# NO classes. Helper functions at module scope are allowed.
+# NO classes. NO helper functions holding transition logic: every branch,
+# guard, and update lives in the body of transition_function itself. The
+# only other module-scope callables the test runner accepts are
+# reward_function, planner, move_counter_mask, and _load_level_initial.
 
 import copy
 
@@ -1743,7 +2225,64 @@ def transition_function(state, action_id):
     #   layer, rotation, pixels.
     # action_id: int (or dict {"action_id": 6, "x": int, "y": int} for clicks).
     # Return: new state (list[dict]) with the same schema.
-    # TODO: implement the action -> state delta from context.txt.
+    # TODO: implement the action -> state delta from context.txt, inline.
+    return [copy.deepcopy(o) for o in state]
+
+
+def reward_function(state, action_id, new_state):
+    # IMPORTANT: This function must NOT always return (0.0, False).
+    # Even if no reward was observed in training, hypothesize the reward
+    # condition. The condition usually requires preconditions to be satisfied
+    # and a joint configuration of objects, not a single-object check.
+    # Return (1.0, True) when the hypothesized condition is met.
+    # TODO: implement reward detection based on context.txt
+    return (0.0, False)
+
+
+def planner(state, available_actions=None, max_depth=None):
+    # Optional C3 hook. Search through transition_function + reward_function
+    # and return a reward-reaching action list, or None if no plan is found.
+    return None
+'''
+
+
+_CODE_STUB_FACTORED = '''# ARC-AGI-3 -- Type-factored object world model
+# Read context.txt for observed transitions and goal.
+# One update rule per object type, registered in TYPE_RULES.
+# transition_function is a thin dispatcher over those rules; interactions
+# between two types are named, guarded, pairwise rules of their own.
+# A repair to one type's behaviour must touch that type's rule and nothing else.
+
+import copy
+
+
+# type key -> rule that advances instances of that type by one action.
+TYPE_RULES = {}
+
+
+def type_rule(type_key):
+    # Decorator: register one object type's update rule.
+    def wrap(f):
+        TYPE_RULES[type_key] = f
+        return f
+    return wrap
+
+
+def object_type(o):
+    # TODO: resolve an object record to its type key. Start from tags, then
+    # refine once the buffer shows two same-tag objects behaving differently.
+    tags = o.get("tags") or []
+    return str(tags[0]) if tags else str(o.get("name") or "Unknown")
+
+
+def transition_function(state, action_id):
+    # state: list[dict] of object records with keys: name, tags, x, y, w, h,
+    #   display_x, display_y, display_w, display_h, visible, collidable,
+    #   layer, rotation, pixels.
+    # action_id: int (or dict {"action_id": 6, "x": int, "y": int} for clicks).
+    # Return: new state (list[dict]) with the same schema.
+    # TODO: dispatch each object to TYPE_RULES[object_type(o)], then apply the
+    # pairwise interaction rules and resolve the results.
     return [copy.deepcopy(o) for o in state]
 
 

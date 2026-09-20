@@ -20,7 +20,9 @@ class DomainAdapter(ABC):
         ...
 
     @abstractmethod
-    def write_test_runner(self, workspace_dir: Path) -> None:
+    def write_test_runner(
+        self, workspace_dir: Path, structure: str = "free",
+    ) -> None:
         ...
 
     @abstractmethod

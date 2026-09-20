@@ -5,6 +5,7 @@ not isolated. Falls back to unsandboxed execution with a warning when bwrap is a
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import resource
@@ -225,6 +226,60 @@ def process_tree_rss_bytes(root_pid: int) -> int:
     return sum(_pid_rss_bytes(pid) for pid in process_tree_pids(root_pid))
 
 
+class StreamStallTimeout(subprocess.TimeoutExpired):
+    """The claude output stream stopped growing for the stall window."""
+
+
+class _StreamWatch:
+    """Incremental tail of a claude output file: growth time + result event.
+
+    Works for stream-json (one event per line) and plain json output (one
+    object, possibly without a trailing newline, held in the line buffer).
+    """
+
+    def __init__(self, path: Path | str):
+        self.path = str(path)
+        self.last_growth = time.monotonic()
+        self.result_at: float | None = None
+        self.result_is_error = False
+        self._size = 0
+        self._buf = b""
+
+    def _note_result(self, raw: bytes) -> bool:
+        if b'"result"' not in raw:
+            return False
+        try:
+            ev = json.loads(raw)
+        except Exception:
+            return False
+        if not (isinstance(ev, dict) and ev.get("type") == "result"):
+            return False
+        self.result_at = time.monotonic()
+        self.result_is_error = bool(ev.get("is_error"))
+        return True
+
+    def poll(self) -> None:
+        try:
+            size = os.path.getsize(self.path)
+        except OSError:
+            return
+        if size <= self._size:
+            return
+        with open(self.path, "rb") as f:
+            f.seek(self._size)
+            chunk = f.read(size - self._size)
+        self._size = size
+        self.last_growth = time.monotonic()
+        if self.result_at is not None:
+            return
+        self._buf += chunk
+        *lines, self._buf = self._buf.split(b"\n")
+        for line in lines:
+            if self._note_result(line):
+                return
+        self._note_result(self._buf)
+
+
 def wait_with_resource_monitor(
     proc: subprocess.Popen,
     *,
@@ -232,12 +287,26 @@ def wait_with_resource_monitor(
     memory_bytes: int | None = None,
     poll_s: float = 1.0,
     log_fn: Any | None = None,
+    stream_path: Path | str | None = None,
 ) -> int:
-    """Wait for proc while killing the whole tree on aggregate RSS overflow."""
+    """Wait for proc while killing the whole tree on aggregate RSS overflow.
+
+    With stream_path set, also watch the claude output file: once the CLI has
+    written its terminal result event the session is over, so a process that
+    outlives it (an orphaned background tool holding the container open) is
+    reaped and the call still returns success. A file that stops growing
+    entirely means no tokens are being generated: raise StreamStallTimeout
+    rather than wait forever. Both windows are env-tunable."""
     limits = _claude_limit_values()
     rss_limit = memory_bytes
     if rss_limit is None and limits:
         rss_limit = int(limits.get("rss_bytes") or limits["as_bytes"])
+    watch = None
+    stall_s = grace_s = 0.0
+    if stream_path is not None:
+        stall_s = float(os.environ.get("ARC3_CLAUDE_STREAM_STALL_S", "2700") or 0)
+        grace_s = float(os.environ.get("ARC3_CLAUDE_RESULT_GRACE_S", "120") or 0)
+        watch = _StreamWatch(stream_path)
     start = time.monotonic()
     peak_rss = 0
     while True:
@@ -259,6 +328,23 @@ def wait_with_resource_monitor(
                     )
                 terminate_process_group(proc)
                 return int(proc.returncode if proc.returncode is not None else -9)
+
+        if watch is not None:
+            watch.poll()
+            now = time.monotonic()
+            if (watch.result_at is not None and grace_s > 0
+                    and now - watch.result_at >= grace_s):
+                if log_fn is not None:
+                    log_fn(
+                        "RESOURCE",
+                        "claude wrote its result event but the process "
+                        f"outlived it by {int(grace_s)}s; reaping the "
+                        f"leftover tree (pid={proc.pid})",
+                    )
+                terminate_process_group(proc)
+                return 1 if watch.result_is_error else 0
+            if stall_s > 0 and now - watch.last_growth >= stall_s:
+                raise StreamStallTimeout(proc.args, stall_s)
 
         if timeout_s is not None and (time.monotonic() - start) >= timeout_s:
             raise subprocess.TimeoutExpired(proc.args, timeout_s)

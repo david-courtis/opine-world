@@ -106,7 +106,7 @@ uv run python play.py --game ar25
 uv run python play.py --game ls20 --resume results/ls20_run
 ```
 
-Run `uv run python play.py --help` for the full set of model, effort, sandbox, planner, and synthesis-cadence flags.
+Run `uv run python play.py --help` for the full set of model, effort, sandbox, planner, synthesis-cadence, and epistemic-layer flags.
 
 ### Output
 

@@ -14,4 +14,8 @@ Write your verdict to `critique.md` in this directory, concise and structured as
 - `What seems sound:` parts that do look properly general
 - `Bottom line:` one short sentence -- robust or fragile, and the single highest-value fix
 
+If `label_audit.json` is present in the workspace, weigh its contradictions
+and merge_compatible entries when judging whether the model's class structure
+is justified by the data.
+
 Keep it short. Prioritize criticism that would matter for future unseen levels.

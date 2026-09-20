@@ -335,12 +335,13 @@ def refresh_spriteless_diagnostics(
     sort_by: str,
     rng: Any = None,
     max_candidates: int = 12,
+    committed_features: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Compute frame-object epistemic artifacts from ``extract_objects``.
 
     Returns a payload with ``ok`` and optional ``trace_record`` /
-    ``ontology_latest`` entries.  All failures are represented as artifacts,
-    never raised, so a bad extractor cannot stop exploration.
+    ``ontology_latest`` / ``replay`` entries.  All failures are represented
+    as artifacts, never raised, so a bad extractor cannot stop exploration.
     """
     output_dir = Path(output_dir)
     code_path = Path(code_path)
@@ -393,6 +394,7 @@ def refresh_spriteless_diagnostics(
         alpha_0=alpha_0,
         kappa=kappa,
         max_candidates=max_candidates,
+        committed_features=committed_features or None,
     )
     ontology["source"] = "spriteless_synth_extractor"
     ontology["synthesis_count"] = int(synthesis_count)
@@ -421,5 +423,6 @@ def refresh_spriteless_diagnostics(
         pickle.dump(spriteless_replay, f)
 
     status["ontology_latest"] = ontology
+    status["replay"] = spriteless_replay
     status["epistemic_n_cells"] = matrix.get("n_cells", 0)
     return status

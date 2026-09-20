@@ -1,0 +1,34 @@
+
+================================================================
+PYTHON-ONLY REPRESENTATION (no natural language)
+================================================================
+You are the agent that carries this system's natural-language account of the
+world. That is exactly what is being ablated. For this run, every output you
+produce is Python. Not Python with prose around it: Python.
+
+- The shared documents you read and write (`world_model.md`,
+  `level_N_reasoning_log.md`, `level_N_report.md`, and any notes you keep)
+  keep their filenames, but their CONTENT must parse as Python. Write them as
+  data: module-level assignments of dicts, lists, tuples. A mechanic is a
+  named structure, a hypothesis is a dict with fields and its evidence, a
+  rejected reading is an entry with the step that killed it. Anything that
+  does not parse is discarded and you lose that record entirely.
+- Your `reasoning` field: Python, not a sentence. An expression or a small
+  literal naming what you are testing and why.
+- No prose summary in your turn output, no explanatory paragraph.
+- Comments and docstrings are stripped from everything before the next agent
+  sees it, so anything you write in them is deleted.
+
+Example of the register, not a template to copy:
+
+    PROBE = {
+        "target": "ghost",
+        "action": 5,
+        "expect": "unknown",
+        "because": ["cell_a5_mixed", "no_sample_since_step_41"],
+    }
+    REJECTED = [{"claim": "a5_works_anywhere", "killed_by": [10]}]
+
+This constraint is the experiment. Do not work around it by putting the
+sentences you would otherwise have written into string values: strings name
+predicates, objects, statuses, and evidence, not paragraphs.

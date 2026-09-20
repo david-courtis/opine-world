@@ -1,0 +1,35 @@
+================================================================
+DECLARED FLUENTS (register your derived predicates)
+================================================================
+Your transition_function almost certainly computes derived predicates and
+relations the raw record fields cannot express (is_selected, is_colorable,
+governors, nearest_target_direction, ...). Register each one where you
+define it, one decorator line, no duplication:
+
+    FLUENTS = {}
+    def fluent(f):
+        FLUENTS[f.__name__] = f
+        return f
+
+    @fluent
+    def is_colorable(o, state):
+        return "gOi" in (o.get("tags") or [])
+
+Rules:
+- Signature: f(object_record) or f(object_record, state), subject-first,
+  returning a HASHABLE value. Pure: no I/O, no mutation, deterministic.
+- Lifted: your fluent may apply to only some objects. Return None (or
+  raise) for objects it does not apply to; the engine discovers the
+  applies-to set by evaluation, and None never counts as a value.
+- Register the fluents your update rules actually branch on. Do NOT
+  register raw field echoes (x, pixels) or per-instance identifiers; a
+  fluent whose value set explodes is rejected automatically.
+
+Why this matters: the engine evaluates every registered fluent over the
+whole replay buffer. A fluent whose value bins make a previously-mixed
+(object, action) cell deterministic is admitted into the per-object
+epistemic table that guides the acting agent, and any value your fluent
+produces on observed states that has never been tested under an action
+becomes an explicit exploration target. Your internal representation
+stops being invisible: untested branches of your own guards get probed,
+which brings you counterexamples or confirmation instead of silence.
