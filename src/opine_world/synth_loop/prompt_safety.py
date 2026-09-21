@@ -1,8 +1,5 @@
-"""Sanitizers for text that is fed back into LLM prompts.
+"""Clean text before it goes back into a prompt."""
 
-The engine writes and re-reads natural-language handoff artifacts. Those files
-must not become a side channel for orchestration commands such as sweep control.
-"""
 from __future__ import annotations
 
 from typing import Any
@@ -44,13 +41,7 @@ def _paragraph_is_unsafe(lines: list[str]) -> bool:
 
 
 def sanitize_model_visible_text(value: Any) -> str:
-    """Remove orchestration-control snippets from text before prompting.
-
-    This intentionally works at paragraph granularity. A leaked control block may
-    contain harmless-looking neighbor lines such as `import json`, `names = [...]`,
-    or `for name in names`. Removing only the marker line would leave executable
-    residue behind.
-    """
+    """Remove engine control text before it reaches a prompt."""
     text = str(value or "")
     if not text:
         return ""

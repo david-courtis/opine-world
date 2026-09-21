@@ -1,16 +1,5 @@
-"""Finalize a run directory into its clean, shareable form.
+"""Reduce a finished run folder to the files worth sharing."""
 
-A run produces the full operational output while it executes: timestamped logs,
-diagnostics that the agents read as inputs each call, checkpoints and snapshots
-for resume, and raw stream-json transcripts. Unless debug mode is on, the engine
-calls ``finalize_clean`` once the run completes to reduce the directory to the
-substantive record: it removes timestamped logs, raw stream-json transcripts, and
-resume infrastructure, rewrites the analyzer transcripts into readable Markdown,
-and scrubs absolute filesystem paths and stray timestamps from the text it keeps.
-The derived signals the agents read as inputs (the epistemic matrix, the
-ontology-error report and trace, the synth status handoff, planner verification,
-the object abstraction) are kept.
-"""
 from __future__ import annotations
 
 import json
@@ -51,9 +40,6 @@ def _blocks(content):
 
 
 def transcript_md(chat_jsonl: Path) -> str:
-    """Render an analyzer stream-json transcript as readable Markdown, keeping
-    reasoning text, tool calls, and tool results and dropping timestamps, ids,
-    and usage metadata."""
     out = ["# Analyzer call transcript", ""]
     for line in chat_jsonl.read_text(errors="ignore").splitlines():
         line = line.strip()
@@ -135,12 +121,7 @@ def _sanitize_text(od: Path, path_subs) -> None:
 
 
 def finalize_clean(output_dir: str | Path, path_subs=()) -> None:
-    """Reduce a finished run directory to its shareable form, in place.
-
-    ``path_subs`` is an ordered list of (absolute_prefix, placeholder) string
-    replacements applied to kept text files (most specific first); the running
-    user's home directory is always scrubbed as well.
-    """
+    """Reduce a finished run folder to its shareable form, in place."""
     od = Path(output_dir)
     for name in DROP_FILES:
         (od / name).unlink(missing_ok=True)

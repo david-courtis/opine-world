@@ -1,4 +1,5 @@
-"""ARC-AGI-3 domain adapter for arcengine games. Extracts typed objects from sprite state."""
+"""Adapter for ARC-AGI-3 games. Reads the game state and writes the synthesis workspace."""
+
 from __future__ import annotations
 
 import importlib.util as _importlib_util
@@ -11,10 +12,6 @@ from ..domain_adapter import DomainAdapter
 
 
 def _load_prompt_loader():
-    """Import the ``prompts.py`` loader (in the parent synth_loop package) by
-    file path. A relative import is unsafe because some entrypoints load this
-    module via importlib under stub parent packages without ``__path__``.
-    """
     path = Path(__file__).resolve().parent.parent / "prompts.py"
     spec = _importlib_util.spec_from_file_location(
         "_synth_loop_prompts_loader", path
@@ -28,7 +25,6 @@ load_prompt = _load_prompt_loader()
 
 
 def _dpos(o: dict) -> tuple[int, int]:
-    """Display position of a state entry, falling back to grid coords."""
     return (
         int(o.get("display_x", o.get("x", 0))),
         int(o.get("display_y", o.get("y", 0))),
@@ -36,7 +32,7 @@ def _dpos(o: dict) -> tuple[int, int]:
 
 
 class ArcEngineEnv:
-    """Wraps an arcengine ARCBaseGame to provide the EnvironmentInterface."""
+    """Wraps an arcengine game so the engine can reset it, step it, and read its state."""
 
     def __init__(self, game, action_names: dict[int, str] | None = None):
         self.game = game
@@ -56,7 +52,6 @@ class ArcEngineEnv:
         return self.extract_state()
 
     def step(self, action) -> tuple[list[dict], float, bool]:
-        """Execute one action. Accepts int, dict with action_id/x/y, or "RESET"."""
         import numpy as np
         from arcengine import ActionInput, GameAction
 
@@ -165,7 +160,6 @@ class ArcEngineEnv:
         return state, reward, done
 
     def get_available_actions(self) -> list[int]:
-        """Return the game's declared actions plus ACTION0 (RESET) and ACTION7 (UNDO)."""
         declared = list(self.game._available_actions)
         out = [0] + declared
         if 7 not in declared:
@@ -182,15 +176,10 @@ class ArcEngineEnv:
         return hasattr(self.game, '_state') and str(self.game._state) == 'GameState.WIN'
 
     def is_game_over(self) -> bool:
-        """True iff the current level has ended in failure (step budget exhausted).
-        The board is frozen until a RESET (action 0 -> level_reset)."""
         return (hasattr(self.game, '_state')
                 and str(self.game._state) == 'GameState.GAME_OVER')
 
     def get_move_budget_info(self) -> dict | None:
-        """Return per-attempt move budget and lives, or None if the game has no budget.
-        Accessors are private on the arcengine side. Failures return None.
-        """
         try:
             ui = getattr(self.game, "_step_counter_ui", None)
             if ui is None or getattr(ui, "osgviligwp", 0) == 0:
@@ -206,12 +195,6 @@ class ArcEngineEnv:
             return None
 
     def camera_transform(self) -> dict[str, int]:
-        """Current grid->display transform: display = (grid - cam) * scale + pad.
-
-        Mirrors Camera.render letterboxing and display_to_grid, so display
-        coords land on the same pixels the 64x64 frame (and ACTION6 clicks)
-        use. Falls back to identity if the camera is unavailable.
-        """
         try:
             cam = self.game.camera
             cam_w = int(cam.width) if cam.width > 0 else 64
@@ -228,20 +211,12 @@ class ArcEngineEnv:
             return {"scale": 1, "pad_x": 0, "pad_y": 0, "cam_x": 0, "cam_y": 0}
 
     def display_to_grid(self, x: int, y: int) -> tuple[int, int] | None:
-        """Map a display/click coordinate back to grid coords (None in letterbox)."""
         try:
             return self.game.camera.display_to_grid(int(x), int(y))
         except Exception:
             return None
 
     def extract_state(self) -> list[dict]:
-        """Extract typed objects from arcengine sprite state including rotation and pixels.
-        Full-screen backgrounds (w >= 64) are skipped to avoid bloating state records.
-
-        x/y/w/h are grid coords (game logic space). display_x/y/w/h are the
-        same rectangle in 64x64 display space, the space of rendered frames
-        and ACTION6 clicks.
-        """
         import numpy as np
         t = self.camera_transform()
         scale = t["scale"]
@@ -275,7 +250,6 @@ class ArcEngineEnv:
         return objects
 
     def get_frame(self):
-        """Return the canonical 64x64 display frame via camera.render(sprites)."""
         try:
             return self._render_canonical_frame()
         except Exception:
@@ -287,10 +261,6 @@ class ArcEngineEnv:
         return np.asarray(frame).copy()
 
     def describe_state(self, state: list[dict]) -> str:
-        """Compact description skipping wall tiles.
-
-        Positions are display coords, matching the frames and ACTION6 clicks.
-        """
         parts = []
         n_walls = 0
         for o in state:
@@ -381,15 +351,6 @@ class ArcEngineEnv:
 
 SYNTH_STRUCTURES = ("free", "oop", "factored", "monolithic")
 
-# Placeholders the sprite test runner carries, and the arm each is armed for.
-# Every consumer must render through render_test_runner rather than
-# substituting by hand: two separate outages have been caused by a new
-# placeholder reaching an exec that only knew about the old one.
-# ONE registry for every placeholder the runner carries. A flag mapped to a
-# synth-mode name is armed when that mode is selected; None means the flag is
-# orthogonal to --synth-mode and render_test_runner resolves it from its own
-# argument. Keeping a second registry is what broke consumers the last time a
-# placeholder was added, so there is exactly one.
 _RUNNER_ARM_FLAGS = {
     "__MONOLITHIC_STRUCTURE__": "monolithic",
     "__FACTORED_STRUCTURE__": "factored",
@@ -400,7 +361,7 @@ _RUNNER_ARM_FLAGS = {
 def render_test_runner(
     structure: str = "free", no_natural_language: bool = False,
 ) -> str:
-    """The sprite test runner with every arm flag resolved."""
+    """Return the test runner script for the chosen synthesis mode."""
     _check_structure(structure)
     out = _TEST_RUNNER_SCRIPT
     for token, arm in _RUNNER_ARM_FLAGS.items():
@@ -420,7 +381,7 @@ def _check_structure(structure: str) -> None:
 
 
 class ArcEngineAdapter(DomainAdapter):
-    """Domain adapter for ARC-AGI-3 games loaded from arcengine."""
+    """Writes the replay buffer, test runner, code stub, and prompts for ARC-AGI-3 games."""
 
     def __init__(self, action_names: dict[int, str] | None = None):
         self._action_names = action_names or {
@@ -438,7 +399,6 @@ class ArcEngineAdapter(DomainAdapter):
     def write_replay_buffer_frames(
         self, transitions: list[dict], workspace_dir: Path,
     ) -> None:
-        """Frames-only replay buffer with before_frame/after_frame instead of before_state/after_state."""
         with open(workspace_dir / "replay_buffer.pkl", "wb") as f:
             pickle.dump(transitions, f)
 
@@ -460,7 +420,6 @@ class ArcEngineAdapter(DomainAdapter):
         )
 
     def format_code_stub(self, structure: str = "free") -> str:
-        """Return the initial game_engine.py template for the given structure."""
         _check_structure(structure)
         if structure == "free":
             return _CODE_STUB_FREE
@@ -471,7 +430,6 @@ class ArcEngineAdapter(DomainAdapter):
         return _CODE_STUB
 
     def format_code_stub_frames(self, structure: str = "free") -> str:
-        """Return the frames-only game_engine.py template."""
         _check_structure(structure)
         if structure == "oop":
             return _CODE_STUB_FRAMES_OOP
@@ -488,14 +446,7 @@ class ArcEngineAdapter(DomainAdapter):
         include_xi: bool = True,
         include_fluents: bool = False,
     ) -> str:
-        """Sprite-mode synthesis prompt.
-
-        ``monolithic`` is the structural ablation arm and reads from its own
-        prompt tree: the object-ontology prescriptions, the xi audit, and the
-        fluent contract are the factorization apparatus under test, so the
-        arm strips all three as one bundle and cannot be half-configured by
-        the caller's include_* flags.
-        """
+        """Synthesis prompt for runs that are given object records."""
         _check_structure(structure)
         if structure == "monolithic":
             return (
@@ -532,7 +483,6 @@ class ArcEngineAdapter(DomainAdapter):
         workspace_dir: Path,
         scope_tags: list[str],
     ) -> None:
-        """Write a scoped test runner that only checks sprites in scope_tags."""
         scope_repr = repr(tuple(sorted(set(str(t) for t in scope_tags))))
         script = _TEST_RUNNER_SCRIPT_CRYSTALLISED.replace(
             "__SCOPE_TAGS__", scope_repr,
@@ -549,9 +499,6 @@ class ArcEngineAdapter(DomainAdapter):
         scope_extra_tags: list[str],
         structure: str = "oop",
     ) -> str:
-        """Synthesis prompt for post-crystallisation scoped world model synthesis."""
-        # 'factored' is a sprite-mode, non-crystallised ablation arm only:
-        # neither of these trees carries a matching classes_*.txt.
         if structure not in ("free", "oop", "monolithic"):
             raise ValueError(
                 f"structure must be 'free', 'oop', or 'monolithic' here, "
@@ -618,15 +565,7 @@ class ArcEngineAdapter(DomainAdapter):
         include_xi: bool = False,
         include_fluents: bool = False,
     ) -> str:
-        """Synthesis prompt for frames-only (raw 64x64 palette grid) world model.
-
-        include_eta=False strips every reference to the spriteless ETA
-        machinery: the ablated frames arm must not receive epistemic
-        vocabulary or the eta rationale for extract_objects. include_xi and
-        include_fluents append the same xi audit and fluent contract as the
-        sprite-mode prompt. Both read the objects from extract_objects."""
-        # 'factored' is a sprite-mode, non-crystallised ablation arm only:
-        # neither of these trees carries a matching classes_*.txt.
+        """Synthesis prompt for runs that are given frames only."""
         if structure not in ("free", "oop", "monolithic"):
             raise ValueError(
                 f"structure must be 'free', 'oop', or 'monolithic' here, "

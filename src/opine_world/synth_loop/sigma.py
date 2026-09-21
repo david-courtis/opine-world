@@ -1,16 +1,5 @@
-"""Per-object epistemic substrate Σ(o).
+"""Per-object record of which actions and contexts have been tried."""
 
-classes(o) = an enumerable action backbone (ξ-refined) plus a mode ledger
-with observed/pooled/goal provenance. Evidence is engagement-gated and
-unexercised classes sit at prior uncertainty, so η(o), the attempt-weighted
-mean of per-class uncertainty, reads an untouched object as unknown. C(o)
-is prequential (test-then-train) forward accuracy against the live
-synthesized model. LP, CAI, rel and Π feed exploration priority.
-
-Every quantity is a deterministic function of the transition stream and the
-stored vocabulary, with no LLM in the update path. The identity unit is the
-sprite name, and same-name instances pool.
-"""
 from __future__ import annotations
 
 import itertools
@@ -30,32 +19,22 @@ from .epistemic import (
 
 SIGMA_ARTIFACT_VERSION = 1
 
-# Passed as ``predicted_state`` when the live model raised or returned a
-# non-state. Every engaged object then scores loss 1.
 MODEL_ERROR = "__model_error__"
 
-# Coordinate-free playable actions. RESET (0) and UNDO (7) are excluded as
-# recovery controls, never level mechanics.
 _BACKBONE_ACTIONS = (1, 2, 3, 4, 5)
 _CLICK_ON = "click_on"
 _CLICK_OFF = "click_off"
 _MODE_PREFIX = "mode|"
 _GOAL_MODE_PREFIX = "mode|goal:"
 
-# Cap on enumerated unexercised ξ-bins per action cell. Truncation is
-# recorded in the artifact, never silent.
 MAX_ENUM_BINS_PER_ACTION = 128
 
-# Alias vote counts are unbounded, softened to [0, 1) as s / (s + SOFTENING).
 _REL_SCORE_SOFTENING = 3.0
 
-# Objects not directly actionable cost more probes to engage.
 _CAI_ACTIONABLE_THRESHOLD = 0.1
 _COST_DIRECT = 1.0
 _COST_AUTONOMOUS = 3.0
 
-# Mirrors aliases.DECORATIVE_DEFAULT, duplicated so retro tooling can import
-# sigma without the aliases module.
 _DECORATIVE_HEADS = frozenset({
     "wall", "scenery", "decoration", "decorative", "border", "tile",
     "floor", "background", "hud",
@@ -64,9 +43,6 @@ _DECORATIVE_HEADS = frozenset({
 
 def _dirichlet_entropy(counts: dict[str, int], alphabet_size: int,
                        alpha_0: float) -> float:
-    """Normalized predictive entropy of Dir(alpha_0·1 + counts) over an
-    alphabet of ``alphabet_size`` symbols, in [0, 1]. Mirrors the estimator in
-    ``epistemic.compute_ontology_error`` (unseen symbols carry prior mass)."""
     E = max(2, int(alphabet_size))
     n = sum(counts.values())
     denom = E * alpha_0 + n
@@ -83,35 +59,21 @@ def _dirichlet_entropy(counts: dict[str, int], alphabet_size: int,
 
 
 def _posterior_error_rate(n_pred: int, k_correct: int, alpha_0: float) -> float:
-    """Laplace-smoothed misprediction rate, used as a floor under U_c.
-
-    A Beta-entropy reading would let a consistently-mispredicted class read
-    as resolved (its rate concentrates at 0 and entropy falls); the floor
-    keeps a class open until its effects are both consistent and predicted.
-    """
     return (n_pred - k_correct + alpha_0) / (n_pred + 2.0 * alpha_0)
 
 
 def _records_match(a: dict | None, b: dict | None) -> bool:
-    """Existence plus verifier-field agreement (x, y, visible, rotation,
-    pixels)."""
     return not _record_mismatch_fields(a, b)
 
 
-# The grounded fluent families the verifier compares, i.e. the record
-# schema; per-family prequential accuracy localizes which CPF is failing.
 FLUENT_FAMILIES = ("x", "y", "visible", "rotation", "pixels", "existence")
 
-# Forward predictions required before the prediction record may resolve a
-# mixed cell (three-state U_c, engine flag sigma_model_resolved).
 MODEL_RESOLVED_MIN_PRED = 3
 
 
 def _record_mismatch_fields(
     a: dict | None, b: dict | None,
 ) -> tuple[str, ...]:
-    """Fluent families on which two records disagree. Existence covers
-    gone/born mismatches; empty tuple means exact match."""
     if a is None or b is None:
         return () if a is None and b is None else ("existence",)
     out = []
@@ -129,11 +91,6 @@ def _record_mismatch_fields(
 
 
 def _mode_profile(obj: dict) -> str:
-    """An object's own-mode profile: attribute configuration ignoring position.
-
-    Position is excluded because moving is a transition, not a mode. The
-    profile is (visible, rotation, pixel-pattern bucket).
-    """
     vis = 1 if obj.get("visible", True) else 0
     rot = int(obj.get("rotation", 0) or 0)
     px = _pixels_hash_bucket(obj.get("pixels"))
@@ -159,7 +116,6 @@ def _click_xy(transition: dict) -> tuple[int, int] | None:
 
 
 def _click_hits(obj: dict, cx: int, cy: int) -> bool:
-    """Whether a display-space click lands in the object's display rectangle."""
     try:
         x = int(obj.get("display_x", obj.get("x", 0)))
         y = int(obj.get("display_y", obj.get("y", 0)))
@@ -178,8 +134,6 @@ def _chebyshev(a: dict, b: dict) -> int:
 
 
 def _rect_in_counter_mask(obj: dict, mask) -> bool:
-    """Whether the object's display rectangle lies entirely inside the
-    validated move-counter mask (display-space (row, col) cells)."""
     if not mask:
         return False
     try:
@@ -198,9 +152,6 @@ def _rect_in_counter_mask(obj: dict, mask) -> bool:
 
 def _action_cell_key(action_id: int, transition: dict, target_obj: dict,
                      committed_features: list[dict] | None) -> str:
-    """Full key of the action cell an engaged observation falls into: base
-    action component plus the values of every committed ξ feature evaluated on
-    (transition, target). Component order is canonical (sorted)."""
     if action_id == 6:
         xy = _click_xy(transition)
         base = (
@@ -226,9 +177,6 @@ def _split_key(key: str) -> tuple[str, frozenset[str]]:
 
 
 def _outcome_hash(bo: dict, ao: dict | None) -> str:
-    """Effect-delta symbol for CAI. Deltas, not absolute records: an
-    autonomous drifter visits a fresh position every step, which would make
-    each sample unique and saturate plug-in MI, while its delta is constant."""
     if ao is None:
         return "gone"
     dx = int(ao.get("x", 0)) - int(bo.get("x", 0))
@@ -243,8 +191,6 @@ def _outcome_hash(bo: dict, ao: dict | None) -> str:
 
 
 def _plugin_mutual_information(joint: Counter) -> float:
-    """I(A; O) / log(min(|A|, |O|)) over an (action, outcome) Counter, zero
-    when either marginal is degenerate."""
     n = sum(joint.values())
     if n == 0:
         return 0.0
@@ -269,24 +215,10 @@ def compute_cai(
     committed_features: list[dict] | None = None,
     min_context_n: int = 3,
 ) -> dict[str, float]:
-    """CAI(o): max over contexts (n >= min_context_n) of normalized
-    I(effect-delta ; action | context).
-
-    Uses all present-object samples, not engagement-gated, since an idle
-    object's action-independence is exactly the CAI = 0 verdict. Plug-in MI
-    biases up on sparse contexts and the context-size gate bounds that.
-
-    A click's intervention content is per-object (on-target or not), so the
-    action variable is a6:on / a6:off relative to each object. Otherwise a
-    click-only game has a constant action marginal and CAI degenerates to 0
-    for everything. For the same reason the conditioning context must be
-    action-independent: click-derived features would absorb the contrast.
-    """
     ctx_features = [
         f for f in (committed_features or [])
         if f.get("kind") != "click_offset"
     ]
-    # name -> context -> Counter[(action_symbol, outcome_hash)]
     tables: dict[str, dict[str, Counter]] = defaultdict(
         lambda: defaultdict(Counter)
     )
@@ -328,8 +260,7 @@ def compute_cai(
 
 
 class SigmaState:
-    """Incremental per-object substrate. ``observe`` one serialized
-    transition at a time, then ``table``/``dump_sigma`` render the artifact."""
+    """Per-object record, built one transition at a time."""
 
     def __init__(
         self,
@@ -357,15 +288,13 @@ class SigmaState:
             raise ValueError(f"goal_cap must be >= 0, got {goal_cap!r}")
         if float(omega) < 0.0:
             raise ValueError(f"omega must be >= 0, got {omega!r}")
-        self.alpha = float(alpha)          # prequential fading factor
-        self.alpha_0 = float(alpha_0)      # Dirichlet/Laplace pseudo-count
+        self.alpha = float(alpha)
+        self.alpha_0 = float(alpha_0)
         self.lp_window = int(lp_window)
         self.m_min = int(m_min)
         self.eps = float(eps)
         self.goal_cap = int(goal_cap)
-        self.omega = float(omega)          # novelty weight in Π
-        # three-state U_c: the prediction record resolves mixed cells (not
-        # persisted; the engine re-applies its config on construction)
+        self.omega = float(omega)
         self.model_resolved = bool(model_resolved)
 
         self._tag_of: dict[str, str] = {}
@@ -384,27 +313,16 @@ class SigmaState:
 
         self._preq_S: dict[str, float] = {}
         self._preq_N: dict[str, float] = {}
-        # per fluent-family fading loss: which CPF is failing, not just
-        # which object
         self._preq_field_S: dict[str, dict[str, float]] = {}
         self._preq_field_N: dict[str, dict[str, float]] = {}
-        # admitted model-fluent refinements, wholesale-replaced per harvest
         self._model_refinements: dict[str, list[dict]] = {}
-        # ring of C values over the last lp_window+1 engaged encounters
         self._c_hist: dict[str, list[float]] = {}
-        # action-cell and mode-cell keys share this dict (disjoint namespaces)
         self._cell_pred: dict[str, dict[str, list[int]]] = defaultdict(dict)
         self._cai: dict[str, float] = {}
         self._reward_tags: set[str] = set()
-        # transient reward lookback, reconstructed by replay after a resume
         self._last_delta_tags: set[str] = set()
         self._last_delta_tags_level: int | None = None
-        # transient failed-probe anchor: names that changed last transition
         self._last_changed_names: set[str] = set()
-
-    # ------------------------------------------------------------------ #
-    # Observation                                                         #
-    # ------------------------------------------------------------------ #
 
     def observe(
         self,
@@ -416,15 +334,6 @@ class SigmaState:
         predicted_state: Any = None,
         counter_mask: Any = None,
     ) -> None:
-        """Fold one serialized transition into the substrate.
-
-        ``predicted_state`` is the live model's pre-repair prediction for
-        this same transition (a state list, ``MODEL_ERROR``, or None when no
-        model ran); engaged objects are scored against it prequentially.
-        ``counter_mask`` is the model's validated move-counter strip: the
-        verifier exempts sprites inside it, so they must not accrue
-        prequential loss either.
-        """
         if available_actions is not None:
             self._available_actions = sorted(
                 int(a) for a in available_actions
@@ -440,8 +349,6 @@ class SigmaState:
         action_id = int(transition.get("action_id", -1))
         xy = _click_xy(transition) if action_id == 6 else None
 
-        # Mode registration is presence-gated, not engagement-gated: seeing a
-        # configuration proves the mode is real.
         for obj in list(before) + list(after):
             name = obj.get("name")
             if not name:
@@ -462,10 +369,6 @@ class SigmaState:
             if sig != "no_change":
                 changed_objs.append(bo if bo is not None else ao)
 
-        # The ARC-3 reward transition is also the level sweep where every
-        # object reads gone or born, so reward adjacency counts only
-        # attribute-delta changes and looks back one same-level transition
-        # for the completing move.
         delta_tags = {
             _primary_tag(bo)
             for bo, ao in pairs
@@ -479,8 +382,6 @@ class SigmaState:
         self._last_delta_tags = delta_tags
         self._last_delta_tags_level = transition.get("level")
 
-        # dedup per (name, cell, sig) per transition to avoid
-        # same-name-multiplicity bias, mirroring epistemic._stratify
         seen: set[tuple[str, str, str]] = set()
         engaged: list[tuple[int, str, str, str | None]] = []
 
@@ -502,7 +403,7 @@ class SigmaState:
                         proximal = True
                         break
             if not (responded or targeted or proximal):
-                continue  # a non-event is not evidence
+                continue
 
             self._alphabet.add(sig)
 
@@ -515,7 +416,6 @@ class SigmaState:
                 seen.add(key)
                 ctr = self._action_cells[name].setdefault(cell, Counter())
                 ctr[sig] += 1
-                # attempt pruning is reversible on any observation
                 self._k_att[name].pop(cell, None)
 
             profile: str | None = None
@@ -531,11 +431,6 @@ class SigmaState:
 
             engaged.append((idx, name, cell, profile))
 
-        # Failed-probe attempts: a coordinate-free action that changed
-        # NOTHING board-wide leaves no engagement evidence, yet objects
-        # adjacent to the last-active entity were plausibly subjected to it.
-        # Their attempted cells decay reversibly (P4: clicks and
-        # near-a-change cases already self-prune through engagement).
         if (
             action_id in _BACKBONE_ACTIONS
             and not changed_objs
@@ -580,8 +475,6 @@ class SigmaState:
         predicted_state: Any,
         engaged: list[tuple[int, str, str, str | None]],
     ) -> None:
-        """Fold 0/1 forward losses for every engaged object into the fading
-        accumulators and the per-class prediction counts."""
         if isinstance(predicted_state, str):
             if predicted_state != MODEL_ERROR:
                 raise ValueError(
@@ -598,7 +491,6 @@ class SigmaState:
         losses = {idx: (1 if fields else 0) for idx, fields in
                   mismatches.items()}
 
-        # per (name, cell) dedup takes the max loss across instances
         cell_loss: dict[tuple[str, str], int] = {}
         name_loss: dict[str, int] = {}
         for idx, name, cell, profile in engaged:
@@ -641,15 +533,6 @@ class SigmaState:
         predicted_state: list,
         engaged: list[tuple[int, str, str, str | None]],
     ) -> dict[int, tuple[str, ...]]:
-        """Mismatched fluent families per engaged pair index (empty tuple
-        means the forward prediction was exact).
-
-        ``_pair_before_after`` emits one entry per before-object in order,
-        then births, so the first ``len(before)`` entries of the actual and
-        predicted pairings align index for index. Actual births match
-        predicted births by name and record agreement; an unmatched birth
-        is an existence miss.
-        """
         predicted = [o for o in predicted_state if isinstance(o, dict)]
         pairs_pred = _pair_before_after(before, predicted)
         n_before = len(before)
@@ -675,23 +558,9 @@ class SigmaState:
                     out[idx] = ("existence",)
         return out
 
-    # ------------------------------------------------------------------ #
-    # Attempt pruning and goal modes                                      #
-    # ------------------------------------------------------------------ #
-
     def _class_uncertainty(
         self, entropy_u: float, n_pred: int, k_pred: int,
     ) -> tuple[float, str | None]:
-        """U_c with its resolution provenance.
-
-        Default composition is the max of the two one-sided alarms. With
-        ``model_resolved`` on and enough scored forward predictions, the
-        prediction record is authoritative: a mixed cell the model predicts
-        exactly is a representational confound (the cell key cannot express
-        the model's fingerprint), not an epistemic unknown, and it resolves
-        instead of reading unknown forever. A mispredicted cell stays open
-        under both regimes.
-        """
         if n_pred <= 0:
             return entropy_u, None
         floor_u = _posterior_error_rate(n_pred, k_pred, self.alpha_0)
@@ -702,10 +571,6 @@ class SigmaState:
         return max(entropy_u, floor_u), None
 
     def set_model_fluents(self, report: dict | None) -> None:
-        """Absorb a fluents.harvest_and_dispose report: admitted fluents'
-        bins become model-provenance classes and their parent cells stop
-        double counting. Wholesale replacement per harvest; the whole
-        structure is recomputable from (buffer, current code)."""
         refs: dict[str, list[dict]] = {}
         for fname, entry in ((report or {}).get("fluents") or {}).items():
             if entry.get("status") != "admitted":
@@ -720,9 +585,6 @@ class SigmaState:
         self._model_refinements = refs
 
     def evidence_signature(self) -> tuple[int, int, int]:
-        """Cheap progress fingerprint: distinct exercised action cells,
-        distinct engaged mode cells, alphabet size. Unchanged across steps
-        means no new KIND of evidence has arrived, whatever the step count."""
         n_cells = sum(len(c) for c in self._action_cells.values())
         n_modes = sum(len(m) for m in self._mode_cells.values())
         return (n_cells, n_modes, len(self._alphabet))
@@ -734,10 +596,6 @@ class SigmaState:
         aliases: dict | None = None,
         max_items: int = 4,
     ) -> str:
-        """Condensed hypothesis briefing for the acting agent: LP movers and
-        discrete holes, one line each with the claim it makes. Never a raw
-        eta sort (raw eta ranks the frozen ceiling, not the frontier).
-        Empty string when there is nothing worth saying."""
         lines: list[str] = []
 
         movers = []
@@ -816,9 +674,6 @@ class SigmaState:
     def forward_record(
         self, tag: Any, action_id: Any,
     ) -> dict[str, int] | None:
-        """Aggregate forward-prediction record over every instance of a tag
-        in the action's cells: how often the live model was tested there and
-        how often it was exactly right. None when never tested."""
         try:
             aid = int(action_id)
         except (TypeError, ValueError):
@@ -839,25 +694,15 @@ class SigmaState:
         return {"n_pred": n_sum, "k_pred": k_sum}
 
     def note_attempt(self, object_name: str, class_key: str) -> None:
-        """Record a targeted probe of an unexercised action cell that induced
-        nothing. Mode cells never accrue attempt debt."""
         name = str(object_name)
         if class_key.startswith(_MODE_PREFIX):
             return
         if class_key in self._action_cells.get(name, {}):
-            return  # exercised: attempts are moot
+            return
         cur = self._k_att[name].get(class_key, 0)
         self._k_att[name][class_key] = cur + 1
 
     def inject_goal_modes(self, requirements: list[dict]) -> dict[str, Any]:
-        """Add goal-stratum mode classes, capped at ``goal_cap`` per object.
-        Each entry: {"object": name_or_tag, "mode": label, "predicate_id": id}.
-
-        The table is keyed by sprite name, but grounding predicates usually
-        name a tag. A tag resolves to every instance carrying it. An object
-        matching neither a known name nor a known tag is counted as
-        unmatched, never stored under a dead key that no row would render.
-        """
         summary = {"added": 0, "capped": 0, "duplicates": 0, "unmatched": 0}
         for entry in requirements or []:
             obj = str(entry.get("object", "") or "")
@@ -887,14 +732,9 @@ class SigmaState:
         return summary
 
     def set_cai(self, cai: dict[str, float]) -> None:
-        """Replace the CAI map. ``compute_cai`` needs the full buffer, so it
-        runs batchwise on the engine cadence rather than inside observe."""
         self._cai = {str(n): float(v) for n, v in (cai or {}).items()}
 
     def _rel_of(self, tag: str, aliases: dict | None) -> float:
-        """Goal-relevance proxy: 1 for tags that changed at a reward step,
-        else the softened top committed-alias score, zeroed for decorative
-        commitments. A soft acquisition prior, never a verified quantity."""
         if tag in self._reward_tags:
             return 1.0
         entries = (aliases or {}).get(tag) or []
@@ -916,8 +756,6 @@ class SigmaState:
         return round(best_score / (best_score + _REL_SCORE_SOFTENING), 6)
 
     def retire_goal_modes(self, predicate_ids: list[str]) -> int:
-        """Dispose goal modes whose predicates were dropped (goal-hypothesis
-        generalization) or proven unnecessary (reward fired without them)."""
         drop = {str(p) for p in predicate_ids or []}
         removed = 0
         for name in list(self._goal_modes.keys()):
@@ -935,15 +773,7 @@ class SigmaState:
             if pid
         })
 
-    # ------------------------------------------------------------------ #
-    # Enumeration and the measure                                         #
-    # ------------------------------------------------------------------ #
-
     def _backbone_cells(self) -> tuple[list[str], bool]:
-        """Enumerable coarse action cells under the current vocabulary:
-        available actions crossed with closed-codomain ξ bins
-        (``neighbour_at_offset`` over known tags ∪ {none}). Returns
-        (cells, truncated_flag)."""
         bases: list[str] = [
             f"a{a}" for a in self._available_actions
             if a in _BACKBONE_ACTIONS
@@ -955,7 +785,7 @@ class SigmaState:
         tags = sorted(self._tag_profiles.keys())
         for feat in self._committed_features:
             if feat.get("kind") != "neighbour_at_offset":
-                continue  # open codomains contribute observed bins only
+                continue
             dx, dy = int(feat.get("dx", 0)), int(feat.get("dy", 0))
             closed_bins.append(
                 [f"@{dx},{dy}={t}" for t in tags] + [f"@{dx},{dy}=none"]
@@ -989,14 +819,8 @@ class SigmaState:
             tag = self._tag_of[name]
             observed = self._action_cells.get(name, {})
             classes: list[dict] = []
-            # Directly actionable = some exercised action cell produced a
-            # real effect (or CAI clears the threshold, checked below).
             direct = False
 
-            # Exercised action cells. Once forward predictions exist, U_c is
-            # floored by the class's misprediction rate (see
-            # _posterior_error_rate): consistent effects alone do not make a
-            # class known if the model cannot predict them.
             preds = self._cell_pred.get(name, {})
             for cell, ctr in sorted(observed.items()):
                 if any(sig != "no_change" for sig in ctr):
@@ -1023,8 +847,6 @@ class SigmaState:
                     cls["resolved_by"] = resolved
                 classes.append(cls)
 
-            # Unexercised coarse cells: a coarse cell is covered when some
-            # observed cell shares its base and includes all its components.
             obs_split = [_split_key(k) for k in observed.keys()]
             for cell in coarse_cells:
                 base, comps = _split_key(cell)
@@ -1047,7 +869,6 @@ class SigmaState:
                     "seen": False,
                 })
 
-            # Mode cells: own + pooled profiles, then goal-injected labels.
             own = self._own_profiles.get(name, set())
             pooled = self._tag_profiles.get(tag, set())
             engaged_modes = self._mode_cells.get(name, {})
@@ -1097,10 +918,6 @@ class SigmaState:
                     "seen": False,
                 })
 
-            # Admitted model-fluent refinements: bins replace their parent
-            # cell in the aggregate (the parent stays displayed at w=0 with
-            # a refined_by mark), produced-but-untested bins are holes.
-            # Bin evidence is tag-level: pooled over same-tag instances.
             for ref in self._model_refinements.get(tag, []):
                 fname, cell = ref["fluent"], ref["cell"]
                 parent = next(
@@ -1179,14 +996,9 @@ class SigmaState:
 
             cai_val = self._cai.get(name)
             rel_val = self._rel_of(tag, aliases)
-            # Measured CAI overrides the any-effect heuristic in both
-            # directions. An autonomous drifter has real effects in its
-            # action cells yet is not directly actionable.
             if cai_val is not None:
                 direct = cai_val >= _CAI_ACTIONABLE_THRESHOLD
             cost = _COST_DIRECT if direct else _COST_AUTONOMOUS
-            # novelty is additive outside the rel product so a rel
-            # false-negative cannot starve discovery
             pi_val = (rel_val * (lp_val or 0.0) + self.omega * nu) / cost
 
             rows.append({
@@ -1221,7 +1033,6 @@ class SigmaState:
         return rows, truncated
 
     def eta(self, object_name: str) -> float | None:
-        """η(o) for one object, or None if unknown."""
         rows, _ = self._object_rows()
         for r in rows:
             if r["name"] == str(object_name):
@@ -1229,8 +1040,6 @@ class SigmaState:
         return None
 
     def table(self, *, aliases: dict | None = None) -> dict[str, Any]:
-        """Render the Σ artifact payload. ``aliases`` is the analyzer's
-        ``type_aliases`` map, consumed only by the rel(o) proxy."""
         rows, truncated = self._object_rows(aliases)
         return {
             "version": SIGMA_ARTIFACT_VERSION,
@@ -1252,10 +1061,6 @@ class SigmaState:
             },
             "objects": rows,
         }
-
-    # ------------------------------------------------------------------ #
-    # Persistence                                                         #
-    # ------------------------------------------------------------------ #
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1389,11 +1194,7 @@ class SigmaState:
         committed_features: list[dict] | None = None,
         **params: Any,
     ) -> "SigmaState":
-        """Rebuild the buffer-derivable substrate by replaying ``observe``.
-
-        k_att, goal modes, and prequential accumulators are not
-        buffer-derivable and start empty here. The checkpoint carries them.
-        """
+        """Build the record by replaying a list of transitions."""
         state = cls(**params)
         for i, t in enumerate(transitions):
             state.observe(
@@ -1408,8 +1209,6 @@ class SigmaState:
 def dump_sigma(
     state: SigmaState, path: str | Path, *, aliases: dict | None = None,
 ) -> dict[str, Any]:
-    """Write the Σ artifact to ``path`` as JSON and return the payload (so
-    callers can derive the per-step trace line without recomputing)."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = state.table(aliases=aliases)
@@ -1418,8 +1217,6 @@ def dump_sigma(
 
 
 def trace_record_from(payload: dict, step: int | None = None) -> dict:
-    """Compact per-step trace line derived from a Σ artifact payload,
-    appended to ``sigma_trace.jsonl`` by the engine."""
     return {
         "step": step if step is not None else payload.get("last_step"),
         "n_transitions": payload.get("n_transitions"),

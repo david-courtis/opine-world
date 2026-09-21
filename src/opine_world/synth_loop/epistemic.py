@@ -1,9 +1,5 @@
-"""Per-(type, action) epistemic matrix computed from the replay buffer.
+"""Uncertainty over object effects: the exploration matrix, eta, and the xi ledger."""
 
-Implements the heuristic priority and the Bayesian Beta posterior with UCB
-and Thompson sampling. It is recomputed from the replay buffer at dump time,
-with no separate accumulation required.
-"""
 from __future__ import annotations
 
 import json
@@ -32,8 +28,6 @@ _BINARY_DET_C_THRESHOLD = 0.95
 
 
 def _project_to_depth(cell: dict, depth: str) -> dict:
-    """Project a full Dirichlet-depth cell to the requested depth, keeping
-    only the fields visible at that depth."""
     if depth == MATRIX_DEPTH_BINARY:
         n = cell["n"]
         c = cell["c"]
@@ -79,7 +73,6 @@ def _object_type(obj: dict) -> str:
 
 
 def _effect_signature(before_obj: dict | None, after_obj: dict | None) -> str:
-    """Sorted, comma-joined names of changed sprite-own fields (excluding _EFFECT_SKIP_FIELDS)."""
     if before_obj is None:
         return "born"
     if after_obj is None:
@@ -98,14 +91,6 @@ def _effect_signature(before_obj: dict | None, after_obj: dict | None) -> str:
 def _pair_before_after(
     before: list[dict], after: list[dict],
 ) -> list[tuple[dict, dict | None]]:
-    """Two-pass greedy pairing. Pass 1 matches exact (name, x, y). Pass 2
-    matches any remaining same-name after-object to handle moved sprites.
-
-    Sprite names are not unique within a state, so a simple dict keyed by
-    name would collapse multiple instances. Before-objects with no match
-    map to None (caller treats as "gone"). After-objects with no match are
-    appended as (None, after_obj) births (caller treats as "born").
-    """
     after_by_name: dict[str, list[dict]] = defaultdict(list)
     for ao in after:
         name = ao.get("name")
@@ -174,9 +159,6 @@ def _augmented_context_signature(
     target_obj: dict,
     committed_features: list[dict] | None,
 ) -> str:
-    """Base context signature augmented with committed feature values (operative ξ).
-    Degrades to the base context signature when committed_features is empty.
-    """
     before = transition.get("before_state") or []
     base = _context_signature(before, target_obj)
     if not committed_features:
@@ -197,8 +179,7 @@ def compute_epistemic_matrix(
     sort_by: str = "thompson",
     rng: Any = None,
 ) -> dict[str, Any]:
-    """Aggregate per-(type, action) cells from the replay buffer into the
-    epistemic matrix, with heuristic and Bayesian priority columns."""
+    """Build the exploration matrix, with one entry per object type and action."""
     if sort_by not in _VALID_SORT_KEYS:
         raise ValueError(
             f"sort_by must be one of {_VALID_SORT_KEYS}, got {sort_by!r}"
@@ -317,9 +298,6 @@ def dump_epistemic_matrix(
     rng: Any = None,
     depth: str = MATRIX_DEPTH_DIRICHLET,
 ) -> None:
-    """Compute and write the matrix to path as JSON. depth controls posterior
-    granularity: "binary" (KT/KF/UK), "beta" (mu/sigma), or "dirichlet" (full counts).
-    """
     if depth not in VALID_MATRIX_DEPTHS:
         raise ValueError(
             f"depth must be one of {VALID_MATRIX_DEPTHS}, got {depth!r}"
@@ -355,11 +333,6 @@ def _stratify(
     replay_buffer: list[dict], type_of: Any,
     committed_features: list[dict] | None = None,
 ) -> dict[tuple[str, int, str], Counter]:
-    """Accumulate per-(type, action, context) effect Counters.
-
-    Per-transition dedup: each unique (type, action, context, effect_sig)
-    counts at most once per transition to avoid instance-multiplicity bias.
-    """
     strata: dict[tuple[str, int, str], Counter] = defaultdict(Counter)
     for t in replay_buffer:
         action_id = t.get("action_id")
@@ -386,11 +359,6 @@ def _stratify(
 
 def _composite_signature(before_objs: list[dict],
                          after_objs: list[dict]) -> str:
-    """Permutation/translation-invariant joint effect signature for one composite group.
-
-    Encodes the summed-coordinate displacement and sorted member effect signatures,
-    so rigid co-movers yield a constant signature regardless of fragment-identity permutation.
-    """
     bx = sum(int(o.get("x", 0)) for o in before_objs)
     by = sum(int(o.get("y", 0)) for o in before_objs)
     ax = sum(int(o.get("x", 0)) for o in after_objs)
@@ -409,11 +377,6 @@ def _stratify_composite(
     composite_groups: list[frozenset[str]],
     committed_features: list[dict] | None = None,
 ) -> dict[tuple[str, int, str], Counter]:
-    """Stratify with selected base-type groups re-paired as composite prediction units.
-
-    Objects not in any group stratify identically to _stratify, so ungrouped strata
-    cancel exactly in any flat-vs-candidate eta comparison.
-    """
     member_label: dict[str, str] = {}
     for grp in composite_groups:
         lbl = "composite:" + "+".join(sorted(grp))
@@ -486,10 +449,7 @@ def compute_ontology_error(
     composite_groups: list[frozenset[str]] | None = None,
     committed_features: list[dict] | None = None,
 ) -> dict[str, Any]:
-    """Compute eta(R, D) under representation type_of (flat _object_type if None).
-
-    Returns the scalar eta plus the worst top_k strata with full effect counts.
-    """
+    """Compute eta: how mixed the effects are in each row of type, action, and context."""
     tf = type_of or _object_type
     if composite_groups:
         strata = _stratify_composite(
@@ -555,10 +515,6 @@ def compute_ontology_error(
 def _covariation_pairs(
     replay_buffer: list[dict], base_type_of: Any,
 ) -> list[tuple[tuple[str, str], float]]:
-    """Score base-type pairs by co-change containment.
-
-    score(A,B) = co_change(A,B) / min(chg(A), chg(B)), high for rigid co-movers.
-    """
     chg: Counter = Counter()
     co: Counter = Counter()
     for t in replay_buffer:
@@ -593,11 +549,6 @@ def _covariation_pairs(
 def _active_cooccurrence_pairs(
     replay_buffer: list[dict], base_type_of: Any,
 ) -> list[tuple[tuple[str, str], float]]:
-    """Score active base-type pairs by co-presence.
-
-    score(a,b) = co_present(a,b) / min(present[a], present[b]), restricted to
-    types that change in at least one transition (excludes inert scenery).
-    """
     present: Counter = Counter()
     co_present: Counter = Counter()
     ever_change: set[str] = set()
@@ -655,10 +606,7 @@ def compute_ontology_error_with_candidates(
     include_composite: bool = True,
     committed_features: list[dict] | None = None,
 ) -> dict[str, Any]:
-    """Compute flat eta and eta* = min eta over label-merge and composite-repairing candidates.
-
-    Answers whether eta is high under the flat partition and reducible by a better one.
-    """
+    """Compute eta, the best eta over type merges, and the xi ledger."""
     flat = compute_ontology_error(
         replay_buffer, _object_type,
         alpha_0=alpha_0, kappa=kappa,
@@ -793,8 +741,6 @@ def dump_ontology_error(
     step: int | None = None,
     committed_features: list[dict] | None = None,
 ) -> dict[str, Any]:
-    """Compute eta / eta* and write the full report to ``path`` (JSON).
-    Returns the compact summary for the caller's running trace."""
     res = compute_ontology_error_with_candidates(
         replay_buffer, alpha_0=alpha_0, kappa=kappa,
         max_candidates=max_candidates,
@@ -825,8 +771,6 @@ def _collect_stratum_transitions(
     target_context: str,
     committed_features: list[dict] | None = None,
 ) -> list[tuple[dict, dict, dict | None]]:
-    """Return (transition, before_obj, after_obj) tuples for sprites in
-    the target stratum (type, action, augmented context)."""
     out: list[tuple[dict, dict, dict | None]] = []
     for t in replay_buffer:
         if t.get("action_id") != target_action:
@@ -849,7 +793,6 @@ def _collect_stratum_transitions(
 
 
 def _pixels_hash_bucket(pixels: Any) -> str:
-    """Bucketed hash of a sprite's pixel pattern (mod 100000 to bound cardinality)."""
     if pixels is None:
         return "none"
     try:
@@ -862,7 +805,6 @@ def _pixels_hash_bucket(pixels: Any) -> str:
 def _xi_feature_value(
     feature: dict, transition: dict, target_obj: dict,
 ) -> str:
-    """Compute the augmented context feature value for one (feature, transition, object) triple."""
     kind = feature.get("kind")
     if kind == "target_field":
         f = str(feature.get("field", ""))
@@ -903,10 +845,6 @@ def _xi_feature_value(
         return f"R{r}=" + ",".join(sorted(nbrs))
 
     if kind == "click_offset":
-        # Offsets are only meaningful inside the object, where they encode
-        # sub-object click semantics with a codomain bounded by the sprite
-        # size. An unbounded off-object offset is a near-unique fingerprint
-        # per (object, click) pair and shreds every stratum it touches.
         cx = transition.get("click_x")
         cy = transition.get("click_y")
         if cx is None or cy is None:
@@ -928,11 +866,6 @@ def _enumerate_xi_candidates(
     stratum_transitions: list[tuple[dict, dict, dict | None]],
     target_action: Any,
 ) -> list[dict]:
-    """Enumerate xi-refinement candidates for one stratum.
-
-    Only emits candidates with a plausible chance of de-confounding (varying fields,
-    observed neighbours, radius {2,3}, click offset for action 6 only).
-    """
     candidates: list[dict] = []
     if not stratum_transitions:
         return candidates
@@ -1011,10 +944,6 @@ def _score_xi_candidate(
     n_min: int,
     modal_frac_min: float,
 ) -> dict | None:
-    """Re-stratify under augmented xi = base + feature and return eta_new and identification counts.
-
-    Returns None if no transitions matched. Per-transition dedup mirrors _stratify.
-    """
     by_trans: dict[int, list] = defaultdict(list)
     for trans, bo, ao in stratum_transitions:
         by_trans[id(trans)].append((trans, bo, ao))
@@ -1081,11 +1010,7 @@ def compute_xi_candidate_ledger(
     min_eta_reduction: float = 0.05,
     committed_features: list[dict] | None = None,
 ) -> dict:
-    """Score xi-refinement candidates over the top-K worst strata of flat_report.
-
-    Candidates are scored but not applied. A candidate is accepted if eta-reduction >= min_eta_reduction
-    and at least one identified sub-stratum (n >= n_min, modal_frac >= modal_frac_min).
-    """
+    """Score context features that could split the most mixed rows."""
     worst_strata = flat_report.get("worst_strata") or []
     params = {
         "top_k_strata": top_k_strata,
@@ -1170,7 +1095,6 @@ def compute_xi_candidate_ledger(
 
 
 def _candidate_roles(aliases: dict[str, list[dict]] | None) -> list[str]:
-    """Union of distinct alias names across all tags, in lexicographic order."""
     if not aliases:
         return []
     seen: set[str] = set()
@@ -1192,11 +1116,6 @@ def _alias_prior(
     candidate_roles: list[str],
     eps: float = 1e-3,
 ) -> dict[str, float]:
-    """Categorical prior over candidate roles for tag tau.
-
-    Listed roles get score-proportional mass. Unlisted roles get eps smoothing.
-    Returns {role_name: prob} summing to 1.
-    """
     K = len(candidate_roles)
     if K == 0:
         return {}
@@ -1230,10 +1149,6 @@ def _alias_prior(
 def _per_tag_effect_counts(
     replay_buffer: list[dict],
 ) -> dict[str, Counter]:
-    """Per-tag effect-signature counts (sufficient statistic for role dynamics likelihood).
-
-    Per-transition dedup: same-tag instances with identical effect count once.
-    """
     out: dict[str, Counter] = defaultdict(Counter)
     for t in replay_buffer:
         before = t.get("before_state") or []
@@ -1262,11 +1177,6 @@ def compute_role_posterior(
     *,
     alpha_0: float = 1.0,
 ) -> dict[str, Any]:
-    """Per-tag role posterior p(role|tag, D) via alias prior fused with a one-step EM
-    dynamics likelihood (paper §4/§5).
-
-    When aliases is None, returns H_norm=1.0 for all tags (pessimistic upper bound).
-    """
     candidate_roles = _candidate_roles(aliases)
     counts = _per_tag_effect_counts(replay_buffer)
 
@@ -1361,11 +1271,6 @@ def compute_ontology_error_extended(
     top_k: int = 30,
     committed_features: list[dict] | None = None,
 ) -> dict[str, Any]:
-    """Compute eta_extended (paper §5 Definition 1 / noisy-OR role unification).
-
-    Returns both legs (eta_effect, eta_role) and the composed eta_extended.
-    When aliases is None, falls back to the pessimistic upper bound (H_tilde_tau=1 everywhere).
-    """
     base = compute_ontology_error(
         replay_buffer, type_of=type_of, alpha_0=alpha_0, kappa=kappa,
         effect_alphabet_size=effect_alphabet_size, top_k=top_k,
@@ -1466,8 +1371,6 @@ def dump_ontology_error_extended(
     step: int | None = None,
     committed_features: list[dict] | None = None,
 ) -> dict[str, Any]:
-    """Compute eta_extended and write the full report to path as JSON.
-    Returns the compact summary for the running trace."""
     res = compute_ontology_error_extended(
         replay_buffer, aliases=aliases, alpha_0=alpha_0,
         committed_features=committed_features,

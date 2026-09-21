@@ -1,9 +1,5 @@
-"""Click-action helpers for ARC-AGI-3 ACTION6.
+"""Helpers for the click action, ACTION6."""
 
-Actions are polymorphic: int for coordinate-free ids (1-5, 7), or
-{"action_id": 6, "x": int, "y": int} for clicks. Click memory is keyed by
-connected-component id so clicks on the same sprite collapse to one entry.
-"""
 from __future__ import annotations
 
 from typing import Any
@@ -43,7 +39,6 @@ def action_to_dict(action: Any) -> dict:
 
 
 def action_label(action: Any, frame: Any = None) -> str:
-    """Return a short label for the run log: RESET, ACTION<n>, or ACTION6(x=..., y=..., ...)."""
     if isinstance(action, str) and action.upper() == "RESET":
         return "RESET"
     aid = action_id_of(action)
@@ -63,10 +58,6 @@ def action_label(action: Any, frame: Any = None) -> str:
 
 
 def click_memory_key(action: Any, frame: Any = None) -> str:
-    """Return the state-action memory key: stringified action id, or click_<comp_id> for clicks.
-
-    Multiple clicks on the same connected component collapse to one key for retry-avoidance.
-    """
     aid = action_id_of(action)
     if not is_click(action):
         return str(aid)
@@ -82,7 +73,6 @@ def click_memory_key(action: Any, frame: Any = None) -> str:
 
 
 def find_connected_components(grid: list[list[int]]) -> dict[tuple, int]:
-    """BFS flood-fill over equal-value 4-neighbours. Returns {(row, col): comp_id}."""
     if not grid:
         return {}
     rows, cols = len(grid), len(grid[0])
@@ -112,7 +102,6 @@ def find_connected_components(grid: list[list[int]]) -> dict[tuple, int]:
 
 
 def get_click_info(grid: list[list[int]], row: int, col: int) -> tuple[str, str]:
-    """Return (label, component_id) for the cell at (row, col), or ("?", "invalid") if out-of-bounds."""
     if not grid or row < 0 or row >= len(grid) or col < 0 or col >= len(grid[0]):
         return "?", "invalid"
     value = grid[row][col]
@@ -125,7 +114,6 @@ def get_click_info(grid: list[list[int]], row: int, col: int) -> tuple[str, str]
 def candidate_click_targets(
     grid: list[list[int]], state: list[dict], max_targets: int = 32,
 ) -> list[tuple[int, int]]:
-    """Return up to max_targets (x, y) click candidates from structured-state object centroids."""
     out: list[tuple[int, int]] = []
     seen: set[tuple[int, int]] = set()
     for o in state or []:

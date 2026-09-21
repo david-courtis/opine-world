@@ -1,4 +1,5 @@
-"""Ontology state: structural-commitment phase, candidate-search hyperparameters, and the eta_t/eta*_t trace (formalism §6)."""
+"""Keeps the eta trace and the committed xi features."""
+
 from __future__ import annotations
 
 import json
@@ -18,10 +19,7 @@ class Phase(str, Enum):
 
 
 class Ontology:
-    """Owns the structural-commitment phase, candidate-search hyperparameters, and the eta_t/eta*_t trace.
-
-    kappa matches the epistemic UCB confidence width by design. Pass epistemic_kappa and alpha_0 directly.
-    """
+    """Holds the eta trace and the committed xi features."""
 
     def __init__(
         self,
@@ -38,17 +36,12 @@ class Ontology:
         self._latest: dict[str, Any] | None = None
         self._committed_features: list[dict[str, Any]] = []
 
-
     def measure(
         self,
         step: int,
         replay_buffer: list[dict],
         aliases: dict[str, list[dict]] | None = None,
     ) -> dict[str, Any]:
-        """Compute eta and eta* on the current buffer and append to the trace.
-
-        When aliases is provided, also computes eta_extended (paper §5, Def. 1).
-        """
         res = compute_ontology_error_with_candidates(
             replay_buffer,
             alpha_0=self.alpha_0,
@@ -83,7 +76,6 @@ class Ontology:
         self._latest = res
         return res
 
-
     _XI_FEATURE_SCHEMA: dict[str, tuple[str, ...]] = {
         "target_field": ("field",),
         "neighbour_at_offset": ("dx", "dy"),
@@ -109,10 +101,7 @@ class Ontology:
     def apply_xi_updates(
         self, updates: dict[str, Any],
     ) -> dict[str, Any]:
-        """Apply synth-emitted xi-refinement "add" entries. It is monotonically additive and returns a summary.
-
-        Invalid entries are skipped and recorded under "errors". Duplicates are no-ops.
-        """
+        """Add new xi features. Features are added and not removed."""
         summary = {"added": 0, "skipped_invalid": 0, "duplicates": 0,
                    "errors": []}
         adds = updates.get("add", []) if isinstance(updates, dict) else []
@@ -136,10 +125,6 @@ class Ontology:
         return list(self._committed_features)
 
     def annotate_xi_ledger(self, forward_record) -> None:
-        """Attach the live model's forward record to each scored ledger
-        stratum, so the synthesizer can tell a representational confound
-        (mixed row the code already predicts: export the fluent it uses)
-        from a genuine unknown (the code fails there too)."""
         ledger = (self._latest or {}).get("xi_candidate_ledger") or {}
         for entry in ledger.get("strata") or []:
             stratum = entry.get("stratum") or {}
@@ -149,7 +134,6 @@ class Ontology:
                 )
             except Exception:
                 entry["model_forward"] = None
-
 
     def dump(self, path: Path) -> None:
         path = Path(path)
@@ -171,13 +155,7 @@ class Ontology:
         with open(path, "a") as f:
             f.write(json.dumps(rec, default=str) + "\n")
 
-
     def rehydrate(self, jsonl_path: Path) -> int:
-        """Restore the in-memory trace from the append-only JSONL. Returns the number of records restored.
-
-        The trace is not in the checkpoint pickle, since it is recomputable from the buffer.
-        This restores full history so the in-memory trace is not truncated on resume.
-        """
         jsonl_path = Path(jsonl_path)
         if not jsonl_path.exists():
             return 0

@@ -1,37 +1,5 @@
-"""Model-declared fluent harvest and disposal.
+"""Read the fluents a world model declares and admit those the replay buffer supports."""
 
-The synthesized model already computes the derived predicates and relations
-its CPFs condition on. The synthesizer registers them where they are
-defined, one decorator line, no second copy:
-
-    FLUENTS = {}
-    def fluent(f):
-        FLUENTS[f.__name__] = f
-        return f
-
-    @fluent
-    def is_colorable(o, state):
-        return "gOi" in (o.get("tags") or [])
-
-A fluent is a lifted, subject-first function over (object_record, state) or
-(object_record,) returning a hashable value. Lifted means its grounding is
-unknown until it runs: returning None or raising on an object marks the
-fluent NOT APPLICABLE to that object, never invalid, and the discovered
-applies-to set is part of the report. Evaluation goes through the imported
-module (the same module object the engine loads each step), so intra-module
-helpers, caches, and imports work unchanged; module-level mutable state is
-already excluded by the verifier's double-run check.
-
-Harvest reads the registry off the module; disposal evaluates every fluent
-over the buffer and admits it only where it de-conflates: some mixed action
-cell splits into near-deterministic bins (the propose step is synthesis
-itself, the dispose step is this check, and the entropy-reduction gate of
-the legacy ledger plays no part). Admitted fluents refine the Σ class table
-with provenance "model"; bins the fluent produces on observed states but
-that carry no engaged evidence are the coverage holes. Everything is
-recomputable from (buffer, current code), so each synthesis round
-re-harvests from scratch and nothing migrates through code wipes.
-"""
 from __future__ import annotations
 
 import inspect
@@ -55,20 +23,11 @@ MAX_FLUENT_CODOMAIN = 12
 FLUENT_EVAL_TIMEOUT_S = 10
 MIN_BIN_SUPPORT = 2
 ADMIT_MODAL_FRAC = 0.9
-# A cell counts as mixed (a de-conflation target) below this concentration.
 MIXED_MODAL_FRAC = 0.9
 MIN_MIXED_CELL_N = 3
 
 
 def _value_outcome(bo: dict, ao: dict | None, sig: str) -> str:
-    """Disposal outcome symbol: the effect signature refined by value
-    DELTAS. The display alphabet certifies WHICH fields changed; disposal
-    must also see what they became (a mechanic that always recolors reads
-    uniformly "pixels" while the game's logic lives in which color
-    results). Deltas rather than absolutes so accumulators stay uniform (a
-    +90-per-step rotator is one outcome, not a fresh one each step);
-    pixels use the bucket transition, the one field whose exact target
-    value carries game logic."""
     if ao is None:
         return sig
     dx = int(ao.get("x", 0)) - int(bo.get("x", 0))
@@ -95,11 +54,7 @@ def _raise_timeout(_signum, _frame):
 
 
 def harvest_fluents(module: Any) -> tuple[dict[str, Callable], list[str]]:
-    """Read the FLUENTS registry off an imported model module.
-
-    Absence is not an error (the contract is optional per round); malformed
-    entries are, loudly.
-    """
+    """Read the FLUENTS registry from a world model module."""
     errors: list[str] = []
     reg = getattr(module, "FLUENTS", None)
     if reg is None:
@@ -137,8 +92,6 @@ def harvest_fluents(module: Any) -> tuple[dict[str, Callable], list[str]]:
 
 
 def _adapt_arity(fn: Callable, n_positional: int) -> Callable:
-    """Uniform (object, state) calling convention over arity-1 predicates
-    like ``is_hud(o)`` and arity-2 relations like ``governors(o, state)``."""
     if n_positional >= 2:
         return fn
 
@@ -152,10 +105,6 @@ def _engaged_samples(
     transitions: list[dict],
     committed_features: list[dict] | None,
 ) -> list[tuple[int, dict, str, str, str, str]]:
-    """Engaged (t_idx, before_obj, name, tag, cell, outcome) samples,
-    mirroring SigmaState.observe's engagement and per-transition dedup.
-    After-only births are skipped: a fluent needs a before-record subject.
-    """
     samples: list[tuple[int, dict, str, str, str, str]] = []
     for t_idx, t in enumerate(transitions):
         before = t.get("before_state") or []
@@ -205,13 +154,7 @@ def dispose_fluents(
     committed_features: list[dict] | None = None,
     alpha_0: float = 1.0,
 ) -> dict[str, Any]:
-    """Evaluate each harvested fluent over the buffer and admit it where it
-    de-conflates a mixed cell into near-deterministic bins.
-
-    Admission is per (fluent, tag, cell). Bins the fluent produces on
-    observed states of that tag but that have no engaged evidence in the
-    cell are reported as holes.
-    """
+    """Test each fluent on the replay buffer and admit those that split a mixed cell."""
     report: dict[str, Any] = {"fluents": {}, "n_admitted": 0}
     if not fluents or not transitions:
         return report
@@ -244,9 +187,6 @@ def dispose_fluents(
             alarm_set = True
         except Exception:
             alarm_set = False
-        # A lifted fluent's grounding is discovered by running it: None or a
-        # per-object exception means not-applicable to that object, and only
-        # a timeout or an empty applies-to set invalidates the fluent.
         def _apply(obj, state):
             try:
                 v = fn(obj, state)
@@ -298,9 +238,6 @@ def dispose_fluents(
         entry["codomain"] = {
             tag: sorted(map(repr, vals)) for tag, vals in presence.items()
         }
-        # Values the fluent produces on observed states that were never
-        # exercised under any action: the model's own untested branches,
-        # reported for EVERY fluent (admitted or not) as probe hints.
         engaged_vals: dict[str, set] = defaultdict(set)
         for (tag, _cell), by_value in bins.items():
             engaged_vals[tag].update(by_value.keys())
@@ -349,9 +286,6 @@ def dispose_fluents(
                     "n": n,
                     "modal_outcome": ctr.most_common(1)[0][0],
                     "modal_frac": round(ctr.most_common(1)[0][1] / n, 4),
-                    # Laplace-style bin uncertainty: the global outcome
-                    # alphabet is huge, so Dirichlet entropy would keep a
-                    # deterministic 3-sample bin pinned near the prior.
                     "U": round(1.0 - ctr.most_common(1)[0][1] / (n + 1), 6),
                 })
             holes = sorted(
@@ -379,7 +313,7 @@ def harvest_and_dispose(
     committed_features: list[dict] | None = None,
     alpha_0: float = 1.0,
 ) -> dict[str, Any]:
-    """One-call entry: registry off the module, disposal against the buffer."""
+    """Read the fluents and test them in one call."""
     fluents, errors = harvest_fluents(module)
     report = dispose_fluents(
         fluents, transitions,

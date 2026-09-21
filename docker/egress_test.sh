@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-#   - api.anthropic.com         MUST be reachable (allowlisted)
-#   - example.com / 1.1.1.1     MUST be blocked (not allowlisted)
 set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 
@@ -11,7 +9,6 @@ fi
 uid=$(id -u); gid=$(id -g)
 
 run_probe() {
-  # $1 = shell snippet run as the unprivileged user after route is set
   docker run --rm \
     --network claude-filtered --cap-add NET_ADMIN --dns "$GW" --user 0 \
     claude-agent bash -lc \
@@ -20,7 +17,6 @@ run_probe() {
 }
 
 echo "[egress] allowlisted (api.anthropic.com:443) -- expect REACHABLE:"
-# /dev/tcp connect test; 0 = connected. DNS via gateway resolves + nftset-allows.
 if run_probe 'timeout 8 bash -c "exec 3<>/dev/tcp/api.anthropic.com/443" && echo ALLOW_OK || echo ALLOW_FAIL'; then :; fi
 
 echo "[egress] non-allowlisted (example.com:443) -- expect BLOCKED:"

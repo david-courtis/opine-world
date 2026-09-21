@@ -1,4 +1,5 @@
-"""Core synthesis engine: the main loop that any domain plugs into."""
+"""The main loop. Act, record transitions, check the world model, and synthesize a new one."""
+
 from __future__ import annotations
 
 import copy
@@ -49,7 +50,7 @@ from .spriteless_eta import refresh_spriteless_diagnostics
 
 
 class EnvironmentInterface(Protocol):
-    """Protocol for any environment the engine can drive."""
+    """What the engine needs from an environment."""
 
     def reset(self) -> dict: ...
     def step(self, action_id: int) -> tuple[dict, float, bool]: ...
@@ -62,13 +63,10 @@ class EnvironmentInterface(Protocol):
 
 
 class AnalyzerNoPlanError(RuntimeError):
-    """Raised before env.step when the analyzer cannot produce a valid action."""
+    pass
 
 
 def _frame_pixel_diff(before, after, max_cells: int = 30) -> str:
-    """Return a one-line summary of palette cells that changed between two frames.
-
-    Returns "Nothing changed" when frames are equal or either is None."""
     if before is None or after is None:
         return "Nothing changed"
     try:
@@ -104,7 +102,6 @@ def _frame_pixel_diff(before, after, max_cells: int = 30) -> str:
 
 
 def _aux_prompt(name: str) -> str:
-    """Read an analyzer auxiliary prompt (prompts/analyzer/shared/<name>). Returns '' on miss."""
     try:
         return (
             Path(__file__).resolve().parent
@@ -116,7 +113,7 @@ def _aux_prompt(name: str) -> str:
 
 @dataclass
 class TransitionRecord:
-    """A single observed transition with full context."""
+    """One recorded step: the state before, the action, the state after, and the reward."""
     before_state: list[dict]
     action_id: int
     action_name: str
@@ -128,16 +125,10 @@ class TransitionRecord:
     level: int
     before_frame: list[list[int]] | None = None
     after_frame: list[list[int]] | None = None
-    # Mid-animation tick states, kept only on reward transitions. The ARC-3
-    # reward transition sweeps to the next level in the same step, so the
-    # completed configuration exists only in these ticks, never in
-    # before_state or after_state.
     intermediate_states: list[list[dict]] | None = None
 
 
 class EngineLogger:
-    """Structured logger that writes to both stdout and a log file."""
-
     def __init__(self, log_dir: Path):
         self.log_dir = log_dir
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -165,7 +156,7 @@ class EngineLogger:
 
 @dataclass
 class EngineConfig:
-    """Configuration for the synthesis engine."""
+    """All settings for one run."""
     max_actions: int = 300
     synthesis_interval: int = 30
     ontology_measure_interval: int = 5
@@ -251,16 +242,8 @@ class EngineConfig:
     planner_require_completed_verification: bool = True
     planner_verify_max_levels: int = 0
 
-    # Σ(o) per-object epistemic substrate (docs/sigma_core_implementation_plan.md).
-    # Computed in every sprite-mode run; the visibility flags are the ablation-arm
-    # switches (compute-everywhere, show-selectively). Frames-only runs skip Σ:
-    # per-object identity is extractor-inferred there and too unstable.
     sigma_visible_to_analyzer: bool = True
     epistemic_visible_to_analyzer: bool = True
-    # Systems-level ablation: no epistemic machinery at all. Skips sigma and
-    # matrix computation, ontology measurement and the ξ ledger, the label
-    # audit, and goal grounding, and removes their artifacts and prompt
-    # sections from both agents' workspaces.
     ablate_epistemic: bool = False
     sigma_alpha: float = 0.9
     sigma_lp_window: int = 5
@@ -269,41 +252,22 @@ class EngineConfig:
     sigma_omega: float = 0.5
     sigma_goal_grounding_enabled: bool = True
     sigma_goal_cap: int = 3
-    # Harvest the model's declared FLUENTS registry each measure cadence and
-    # absorb admitted refinements into sigma; adds the declaration contract
-    # to the synthesis prompt.
     sigma_fluent_harvest: bool = True
-    # Event-gated epistemic briefing in the analyzer prompt: fires on new
-    # level, after a model repair, and on evidence stall; scarce by design
-    # so it never becomes wallpaper.
     sigma_briefing: bool = True
     sigma_briefing_stall_steps: int = 12
     sigma_briefing_cooldown: int = 8
-    # Three-state U_c: enough correct forward predictions resolve a mixed
-    # cell as a representational confound instead of an epistemic unknown.
     sigma_model_resolved: bool = True
 
-    # Engine-scripted click-all warmup at game start (sprite mode). Off by
-    # default so sprite-mode action selection is analyzer-driven from step 0,
-    # matching frames-only runs.
     warmup_click_all: bool = False
 
-    # Natural-language ablation. Removes the NL intermediate representation
-    # (code comments, docstrings, and the prose handoff artifacts) while
-    # leaving the dual-agent architecture intact, so the comparison is not
-    # confounded by removing an agent.
     ablate_natural_language: bool = False
 
-    # Fixed-trajectory arm. When set, actions come verbatim from this file
-    # and no acting agent runs, so every arm sees an identical replay buffer
-    # and only synthesis differs. Actions are handed out in batches; a
-    # drained batch is the plan boundary the CEGIS gate counts.
     action_script: str | Path | None = None
     action_script_batch: int = 6
 
 
 class SynthesisEngine:
-    """Domain-agnostic synthesis engine: explore, record transitions, and synthesize a world model."""
+    """Runs one game: act, record, check the world model, and synthesize."""
 
     def __init__(
         self,
@@ -365,9 +329,6 @@ class SynthesisEngine:
             model_resolved=self.config.sigma_model_resolved,
         )
         self.sigma = SigmaState(**self._sigma_params)
-        # Frames-only: object-level replay from the synth's extract_objects,
-        # refreshed by _refresh_spriteless_diagnostics. It stands in for the
-        # sprite records everywhere the epistemic layer reads transitions.
         self._spriteless_replay: list[dict] = []
         self._goal_injections: list[dict] = []
         if not self.config.frames_only and not self.config.ablate_epistemic:
@@ -446,9 +407,6 @@ class SynthesisEngine:
 
         self._warmup_queue: list[dict] = []
 
-        # Fixed-trajectory arm: the whole action sequence, the read cursor,
-        # and the in-flight batch. The batch is the CEGIS plan boundary, so
-        # it must drain before _should_synthesize opens.
         self._script_actions: list[Any] = []
         self._script_meta: list[dict] = []
         self._script_pos: int = 0
@@ -472,10 +430,6 @@ class SynthesisEngine:
         self._div_reward_model = None
         self._div_model_round: int = -1
         self._div_mask = frozenset()
-        # The live model's prediction for the just-executed transition,
-        # captured by _record_execution_divergence BEFORE any repair can run
-        # (test-then-train): a state list, sigma.MODEL_ERROR, or None when no
-        # model was invoked. Consumed by the Σ prequential update each step.
         self._last_pred_state: Any = None
 
         self._planner_queue: list[Any] = []
@@ -533,9 +487,6 @@ class SynthesisEngine:
         self._snapshot_completed_step: int | None = None
 
     def _acquire_run_lock(self) -> None:
-        """Refuse to run two engines on one output dir. Concurrent writers
-        interleave run_log/checkpoint writes into silent corruption, so a
-        live lock is a hard error, never a warning."""
         self.output_dir.mkdir(parents=True, exist_ok=True)
         lock = self.output_dir / ".engine.lock"
         if lock.exists():
@@ -559,7 +510,7 @@ class SynthesisEngine:
         lock.write_text(str(os.getpid()))
 
     def run(self) -> dict:
-        """Run the full engine loop until game won or budget exhausted. Returns a summary dict."""
+        """Play until the game is won or the action budget runs out. Returns a summary."""
         start_step = self._resume_step or 0
         self.logger.section(
             "SYNTHESIS ENGINE START"
@@ -765,11 +716,6 @@ class SynthesisEngine:
                 self._check_script_replay(step, level_before, float(reward))
 
             level_after = self.env.get_level_index()
-            # A first-visit level advance lands on a hand-designed entry state
-            # no model could have predicted (its cache cannot exist yet), so
-            # it must not count as prequential evidence against any object.
-            # Repeat visits stay scored: the cache exists and the model is
-            # expected to use it.
             first_level_visit = (
                 level_after > level_before
                 and level_after not in self.level_states
@@ -961,6 +907,7 @@ class SynthesisEngine:
                             self.ontology.committed_features()
                         ),
                         step=step,
+                        # The first state of a new level can't be predicted, so skip it.
                         predicted_state=(
                             None if first_level_visit
                             else self._last_pred_state
@@ -1217,11 +1164,6 @@ class SynthesisEngine:
     def _queue_click_all_warmup(
         self, state: list[dict], actions: list[int], start_step: int,
     ) -> None:
-        """Queue one click per distinct visible non-background sprite at game start.
-
-        Skipped when ACTION6 is not available. ARC-AGI-3 invariant: every level
-        with ACTION6 has at least one click that produces a transition.
-        """
         if 6 not in actions:
             return
         targets: list[tuple[int, int, str, list[str]]] = []
@@ -1278,9 +1220,6 @@ class SynthesisEngine:
         )
 
     def _strip_nl_code(self, source: str, *, where: str) -> str:
-        """Remove comments and docstrings from model code under the NL
-        ablation. Logged rather than silent, because the count is the
-        evidence that the arm actually bound."""
         result = strip_natural_language(source)
         if result.error:
             self.logger.log(
@@ -1294,17 +1233,6 @@ class SynthesisEngine:
             )
         return result.source
 
-    # Files the ENGINE or the harness owns. Everything else the agent leaves
-    # behind must be Python under this arm.
-    #
-    # The refusal sweep runs over the run's output directory as well as the
-    # workspace, and the engine's own observability files live there. They are
-    # environment interface rather than agent representation, so this arm must
-    # leave them alone: deleting them truncates the run record to whatever was
-    # written after the most recent synthesis round, and because the refusal is
-    # logged to the file it deletes, the compliance evidence erases itself. The
-    # damage is also one-sided, since only the treatment arm runs this sweep,
-    # which biases any log-derived comparison between arms.
     _NL_ARM_ALLOWED_SUFFIXES = (".py", ".pkl", ".json", ".jsonl", ".png")
     _NL_ARM_ENGINE_OWNED = frozenset({
         "engine.log", "run_log.txt", "launch.log", ".engine.lock",
@@ -1315,23 +1243,12 @@ class SynthesisEngine:
         "requires_critique_response.flag",
     }) | _NL_ARM_ENGINE_OWNED
 
-    # Communication channels the arm deliberately leaves in natural language.
-    # Watched, not blocked: world-model content appearing here is the result.
     _COMMUNICATION_ARTIFACTS = (
         "critique.md", "last_critique.md", "critique_response.md",
         "consumer_notes.md", "analyzer_notes.md",
     )
 
     def _measure_wm_in_communication(self, base_dir: Path) -> None:
-        """Report world-model content showing up in communication channels.
-
-        The arm forbids a natural-language world model, not natural language.
-        If the agents respond by reconstructing the model inside the channels
-        that stayed prose, that is the finding the ablation exists to produce,
-        so it is measured rather than suppressed. The proxy is deliberately
-        crude and its crudeness is stated: long prose in a channel that is
-        normally terse, carrying the vocabulary of a mechanics account.
-        """
         if not self.config.ablate_natural_language:
             return
         markers = (
@@ -1369,14 +1286,6 @@ class SynthesisEngine:
             )
 
     def _refuse_non_python_artifacts(self, ws_dir: Path) -> None:
-        """Remove agent-authored non-Python files under the NL ablation.
-
-        The arm's claim is that no natural-language representation persists
-        between agent invocations. A prose file the agent invents on its own
-        would be exactly such a representation, so it is refused rather than
-        carried forward, and the refusal is logged so non-compliance is
-        measurable instead of silent.
-        """
         refused: list[str] = []
         for path in ws_dir.iterdir():
             try:
@@ -1399,10 +1308,6 @@ class SynthesisEngine:
             )
 
     def _enforce_python_artifacts(self, base_dir: Path) -> None:
-        """Rewrite the persisted handoff artifacts as Python under the NL
-        ablation. Filenames are unchanged across arms so that staging,
-        snapshotting, and the handoff run identical code paths and only the
-        content is manipulated."""
         targets = list(self._iter_shared_model_artifacts(base_dir))
         for extra in (self._doc("synth_learnings"), "critique_response.md"):
             p = base_dir / extra
@@ -1432,13 +1337,6 @@ class SynthesisEngine:
                 )
 
     def _load_action_script(self, path: str | Path) -> None:
-        """Load a fixed action trajectory from a prior run's actions.jsonl.
-
-        Each line needs ``action_id``; clicks additionally need display-space
-        coordinates under ``x``/``y`` or ``click_x``/``click_y``. ``level``
-        and ``reward``, when present, are kept as the replay contract the
-        run is checked against step by step.
-        """
         src = Path(path)
         actions: list[Any] = []
         meta: list[dict] = []
@@ -1481,13 +1379,6 @@ class SynthesisEngine:
         )
 
     def _log_script_completion(self) -> None:
-        """Record how much of the trajectory actually replayed.
-
-        play.py clamps max_actions to the trajectory length, so the loop ends
-        by exhausting its range and the in-loop exhaustion branch never runs.
-        Without this the artifact carries no positive evidence that the whole
-        trajectory replayed, and a truncated arm looks like a complete one.
-        """
         n_done = self._script_pos - len(self._script_batch)
         if n_done >= len(self._script_actions):
             self.logger.log(
@@ -1505,12 +1396,6 @@ class SynthesisEngine:
 
     def _check_script_replay(self, step: int, level_before: int,
                              reward: float) -> None:
-        """Compare the replayed step against the source trajectory.
-
-        Both candidate ablation games are RNG-free, so a level or reward
-        that disagrees with the source run means the replay has desynced
-        and every downstream comparison is void. Loud, not silent.
-        """
         if step >= len(self._script_meta):
             return
         exp = self._script_meta[step]
@@ -1536,12 +1421,6 @@ class SynthesisEngine:
             )
 
     def _script_choose_action(self, step: int) -> Any | None:
-        """Next action from the fixed trajectory, or None when exhausted.
-
-        Deliberately bypasses the game-over RESET forcing: any forced RESET
-        the source run took is already recorded in the trajectory, so
-        injecting another one here would desync the arms.
-        """
         if not self._script_batch:
             if self._script_pos >= len(self._script_actions):
                 return None
@@ -1564,13 +1443,6 @@ class SynthesisEngine:
     def _choose_action(
         self, state: list[dict], actions: list[int], step: int,
     ) -> Any | None:
-        """Choose next action.
-
-        Priority: fixed trajectory (when an action script is loaded, it is
-        the only source), else GAME-OVER recovery, WARMUP queue, C3 planner
-        queue, analyzer queue, fresh C3 plan, fresh analyzer call, hard
-        failure.
-        """
         self._current_action_plan_source = None
         if self._script_actions:
             return self._script_choose_action(step)
@@ -1673,7 +1545,6 @@ class SynthesisEngine:
         raise AnalyzerNoPlanError(msg)
 
     def _clear_planner_plan(self) -> None:
-        """Drop any queued C3 trace without changing model-level block/cooldown."""
         self._planner_queue = []
         self._planner_trace = []
         self._planner_expectation = None
@@ -1685,7 +1556,6 @@ class SynthesisEngine:
         ).resolve()
 
     def _load_planner_model(self):
-        """Import latest game_engine.py for C3 planning, cached by synthesis round."""
         if self.synthesis_count <= 0:
             return None
         if self._planner_model_round == self.synthesis_count:
@@ -1712,7 +1582,6 @@ class SynthesisEngine:
         return self._planner_model
 
     def _planner_model_is_consistent(self) -> bool:
-        """Cached replay verification for planner gating."""
         key = (int(self.synthesis_count), len(self.replay_buffer))
         if self._planner_consistency_key == key:
             return bool(self._planner_consistent)
@@ -1744,12 +1613,6 @@ class SynthesisEngine:
     def _verify_planner_on_completed_levels(
         self, actions: list[int], step: int,
     ) -> bool:
-        """Baseline1-style planner gate: completed level starts must be solvable.
-
-        This is model-side verification only. It never executes real actions.
-        Failures disable C3 for the current synthesis round, leaving exploration
-        and CEGIS to continue normally.
-        """
         key = (
             int(self.synthesis_count),
             int(self.levels_completed),
@@ -1912,7 +1775,6 @@ class SynthesisEngine:
     def _prime_planner_plan(
         self, state: list[dict], actions: list[int], step: int,
     ) -> bool:
-        """Compute and queue a full C3 plan without popping the first action."""
         if self._planner_queue:
             return True
         ok, reason = self._planner_gate(actions, step)
@@ -2124,9 +1986,7 @@ class SynthesisEngine:
         except Exception:
             pass
 
-
     def _plan_is_valid(self, step: int) -> bool:
-        """Returns False if 3 or more consecutive no-effect steps have occurred."""
         if self._llm_plan_no_effect_streak >= 3:
             return False
         return True
@@ -2143,12 +2003,6 @@ class SynthesisEngine:
     )
 
     def _select_aux_prompt(self, step: int) -> str:
-        """Pick a state-triggered analyzer nudge (baseline1-style protocol). '' when
-        nothing applies. Priority: game-over > new-level > trouble2/1 > stuck.
-
-        Trouble escalates by steps-on-level (no level advance): trouble1 at +100,
-        trouble2 at +200 which also forces a fresh analyzer session (their
-        new_session() tunnel-break). Trackers are reset on each level advance."""
         try:
             gover = (hasattr(self.env, "is_game_over")
                      and self.env.is_game_over())
@@ -2192,7 +2046,6 @@ class SynthesisEngine:
     def _agentic_choose_action(
         self, state: list[dict], actions: list[int], step: int,
     ) -> int | None:
-        """Run the analyzer, commit its plan, and return the first action. Returns None on failure."""
         if self.agentic_consumer is None:
             return None
 
@@ -2432,10 +2285,6 @@ class SynthesisEngine:
                     f"rate-limited after {result.get('rate_limit_wait_s', '?')}s; stopping retries"
                 )
                 break
-            # A sub-30s failure is an infra blip (auth, transient API
-            # error, undetected throttling), not the model misbehaving.
-            # Instant retries during a throttle window burn every attempt
-            # in seconds and hard-stop a multi-hour run at one bad minute.
             try:
                 fast_failure = float(dur) < 30
             except (TypeError, ValueError):
@@ -2504,7 +2353,6 @@ class SynthesisEngine:
         return first
 
     def _get_moves_left(self) -> int | None:
-        """Remaining moves, or None. Not surfaced to the LLM as a number."""
         get_budget = getattr(self.env, "get_move_budget_info", None)
         if get_budget is None:
             return None
@@ -2536,7 +2384,6 @@ class SynthesisEngine:
                         )
 
     def _goal_confirmed_on_current_level(self) -> bool:
-        """True iff a positive reward has been observed on the current level."""
         cl = self.current_level
         return any(
             getattr(t, "reward", 0.0) > 0 and getattr(t, "level", -1) == cl
@@ -2544,7 +2391,6 @@ class SynthesisEngine:
         )
 
     def _update_world_model_doc(self, state: list[dict], mission: str | None):
-        """Rebuild the NL world model document from accumulated knowledge."""
         sections = []
 
         sections.append("# World Model\n")
@@ -2648,27 +2494,6 @@ class SynthesisEngine:
 
         self.world_model_doc = "\n".join(sections)
 
-    # Under the natural-language ablation every persisted agent artifact is a
-    # Python module, so the extension follows the arm rather than being fixed.
-    # A .md file is a natural-language file by convention, and the arm refuses
-    # to create one at all rather than filling it with Python.
-    # SCOPE OF THE NATURAL-LANGUAGE ABLATION.
-    #
-    # The claim is about the WORLD MODEL's representation, not about all
-    # natural language in the system. These artifacts ARE the world model:
-    # the model code, the evolving account of the mechanics, the per-level
-    # reasoning, and the handoff that carries the model to the next agent.
-    # Under the arm each must be Python.
-    #
-    # Everything else is COMMUNICATION and stays natural language: the
-    # critic's findings, the acting agent's notes and reasoning, the engine's
-    # descriptions of observations. Ablating those would test a different and
-    # less interesting claim.
-    #
-    # If a model responds by smuggling world-model content through a
-    # communication channel, that is a RESULT, not a leak to plug: it says
-    # the NL representation was load bearing enough to be worth
-    # reconstructing. _measure_wm_in_communication reports it.
     _WORLD_MODEL_DOC_STEMS = (
         "world_model", "level_reasoning_log", "level_report",
         "synth_learnings",
@@ -2676,7 +2501,6 @@ class SynthesisEngine:
     _AGENT_DOC_STEMS = _WORLD_MODEL_DOC_STEMS
 
     def _doc(self, stem: str) -> str:
-        """Filename for an LLM-authored artifact, extension per arm."""
         return stem + self._doc_ext
 
     @property
@@ -2807,7 +2631,6 @@ class SynthesisEngine:
         current_level: int | None = None,
         completed_level: int | None = None,
     ) -> None:
-        """Create baseline1-style shared Markdown artifacts if absent."""
         try:
             self.output_dir.mkdir(parents=True, exist_ok=True)
             world = self.output_dir / self.SHARED_WORLD_MODEL_FILENAME
@@ -2864,13 +2687,6 @@ class SynthesisEngine:
         return snapshot
 
     def _stage_synth_diagnostics(self, ws_dir: Path) -> None:
-        """Symlink engine-side diagnostics into a synthesis workspace.
-
-        goal_requirements.json closes the loop synthesis -> grounding ->
-        synthesis: the synthesizer sees how the buffer disposed of its own
-        goal hypothesis (disproven readings, open holes) before it revises
-        reward_function.
-        """
         linked_artifacts = {
             "ontology_error.json": self.output_dir / "ontology_error.json",
             "spriteless_object_abstraction.json": (
@@ -2889,9 +2705,6 @@ class SynthesisEngine:
             ),
         }
         if self.config.synth_mode == "monolithic":
-            # The eta/xi artifacts carry per-object-type strata, i.e. the
-            # factorization apparatus this arm ablates. Goal grounding stays:
-            # it is goal information, held constant across arms.
             for name in (
                 "ontology_error.json", "label_audit.json",
                 "spriteless_object_abstraction.json",
@@ -2919,7 +2732,6 @@ class SynthesisEngine:
                     )
 
     def _stage_shared_model_artifacts(self, ws_dir: Path) -> None:
-        """Expose shared model docs in a workspace as writable copies."""
         self._ensure_shared_model_artifacts(current_level=self.current_level)
         for src in self._iter_shared_model_artifacts(self.output_dir):
             dst = ws_dir / src.name
@@ -2975,7 +2787,6 @@ class SynthesisEngine:
         source: str,
         before_snapshot: dict[str, str] | None = None,
     ) -> str:
-        """Copy workspace edits to run-root docs and return a change summary."""
         self._ensure_shared_model_artifacts(current_level=self.current_level)
         before = before_snapshot or self._snapshot_shared_model_artifacts()
         names = set(before)
@@ -3070,7 +2881,6 @@ class SynthesisEngine:
         return "\n\n".join(parts)
 
     def _observed_changing_tags(self) -> set[str]:
-        """Tags whose instances changed position, visibility, rotation, or pixels in any buffer transition."""
         changing: set[str] = set()
         for t in self.replay_buffer:
             before_by_key: dict[tuple, dict] = {}
@@ -3107,7 +2917,6 @@ class SynthesisEngine:
         return changing
 
     def _check_crystallisation(self, step: int) -> dict[str, str] | None:
-        """Evaluate the Prop. 5 trigger. Returns the committed partition {tag: alias} or None."""
         if not self.config.crystallisation_enabled:
             return None
         if self.crystallised:
@@ -3124,7 +2933,6 @@ class SynthesisEngine:
     def _commit_crystallisation(
         self, step: int, partition: dict[str, str],
     ) -> None:
-        """Fire the one-shot Prop. 5 stopping decision. Sets self.crystallised = True permanently."""
         self.crystallised = True
         self.crystallisation_step = int(step)
         self.crystallised_partition = dict(partition)
@@ -3161,7 +2969,6 @@ class SynthesisEngine:
         )
 
     def _compute_scope_tags(self) -> set[str]:
-        """Scope = committed partition union observed-changing tags. Refreshed on every call."""
         scope: set[str] = set(self.crystallised_partition.keys())
         scope.update(self._observed_changing_tags())
         return scope
@@ -3173,7 +2980,6 @@ class SynthesisEngine:
         *,
         level_completed: bool = False,
     ) -> None:
-        """Accumulate unrepaired world-model divergence debt."""
         if self._model_error_first_step is None:
             self._model_error_first_step = int(step)
         self._model_error_last_step = int(step)
@@ -3188,7 +2994,6 @@ class SynthesisEngine:
         )
 
     def _record_completed_action_plan_after_divergence(self, step: int) -> None:
-        """Count completed analyzer/planner batches while divergence debt is open."""
         if self._model_error_first_step is None:
             return
         source = self._current_action_plan_source
@@ -3211,7 +3016,6 @@ class SynthesisEngine:
         )
 
     def _reset_model_error_debt(self) -> None:
-        """Clear divergence debt after a CEGIS attempt or consistency proof."""
         self._model_error_first_step = None
         self._model_error_last_step = None
         self._model_error_count = 0
@@ -3222,7 +3026,6 @@ class SynthesisEngine:
     def _synthesis_gate_status(
         self, step: int, ctrl: dict | None = None,
     ) -> dict[str, Any]:
-        """Return the delayed-CEGIS gate status for analyzer + engine use."""
         ctrl = ctrl or {}
         active = self._model_error_first_step is not None
         min_moves = max(
@@ -3311,7 +3114,6 @@ class SynthesisEngine:
     def _format_divergence_feedback(
         self, step: int, window: list[dict],
     ) -> str:
-        """Prompt block telling the analyzer how deferred CEGIS is progressing."""
         diverged = [e for e in window if e.get("diverged")]
         status = self._synthesis_gate_status(step)
         if not diverged and not status.get("active"):
@@ -3367,9 +3169,6 @@ class SynthesisEngine:
         return "\n".join(lines)
 
     def _format_animation_notice(self, window: list[dict]) -> str:
-        """Proactively tell the analyzer which recently executed steps produced
-        multi-tick animation, how many ticks each, and where the frames are --
-        so animated mechanics aren't missed even when no divergence flagged them."""
         if not window:
             return ""
         steps = {int(e.get("step", -1)) for e in window}
@@ -3410,10 +3209,6 @@ class SynthesisEngine:
     OPERATOR_INJECT_FILES = ("operator_inject.md", "operator_inject.txt")
 
     def _read_operator_inject(self) -> str:
-        """One-shot operator instruction for the next analyzer call. Drop text
-        into <output_dir>/operator_inject.md. It is injected as a high-priority
-        block on the next analyzer call and then consumed (renamed) so it fires
-        exactly once."""
         for name in self.OPERATOR_INJECT_FILES:
             p = self.output_dir / name
             if not p.exists():
@@ -3436,12 +3231,6 @@ class SynthesisEngine:
         return ""
 
     def _maybe_epistemic_briefing(self, step: int) -> str:
-        """Event-gated briefing for the analyzer prompt. Fires on new level
-        (inventory moment), after a model repair (what did the revision
-        break), and on evidence stall (no new KIND of evidence for N steps,
-        whatever the step count). Cooldown keeps it scarce: an ambient
-        briefing would be wallpaper. Self-directed consultation is taught
-        in the system prompt and does not depend on these triggers."""
         st = getattr(self, "_briefing_state", None)
         if st is None:
             st = self._briefing_state = {
@@ -3501,10 +3290,6 @@ class SynthesisEngine:
         transitions: list[dict],
         committed_features: list[dict],
     ) -> None:
-        """Read the current model's declared FLUENTS registry and absorb
-        admitted refinements into sigma. Propose is synthesis itself;
-        dispose is the buffer (fluents.dispose_fluents); a wholesale
-        replacement per harvest, recomputable from (buffer, code)."""
         model = self._load_planner_model()
         if model is None:
             return
@@ -3559,10 +3344,6 @@ class SynthesisEngine:
         committed_features: list[dict],
         cai_map: dict[str, float],
     ) -> None:
-        """Audit the alias labels against the buffer. Grade-A refutations are
-        retired mechanically and recorded as standing constraints so the
-        analyzer cannot re-propose them without addressing the witness. All
-        other grades are analyzer-facing evidence only."""
         audit = label_audit(
             transitions,
             aliases=self.type_aliases,
@@ -3608,24 +3389,14 @@ class SynthesisEngine:
             )
 
     def _maybe_ground_goal(self, step: int, *, reason: str) -> None:
-        """One goal-requirement grounding cycle: an LLM call proposes
-        requirement predicates, the buffer disposes them mechanically, and
-        accepted-but-unsatisfied survivors become goal-stratum coverage holes
-        in sigma. Each cycle replaces the previous goal-mode set."""
         if not getattr(self.config, "sigma_goal_grounding_enabled", True):
             return
         if self.config.ablate_epistemic:
             return
         if not self.replay_buffer:
             return
-        # Requirements are predicates over object records. Frames-only has
-        # none until the synth's extractor has produced an object replay.
         if self.config.frames_only and not self._spriteless_replay:
             return
-        # The NL arm writes no English goal, so the reward_function source is
-        # what stands in as the hypothesis. Without this the ablated arm would
-        # silently lose goal grounding until the first reward, which is a
-        # capability difference, not the representational one under test.
         have_hypothesis = bool(
             self.goal_in_english
             or (self.config.ablate_natural_language
@@ -3747,14 +3518,6 @@ class SynthesisEngine:
         )
 
     def _should_synthesize(self, step: int) -> bool:
-        """Return True if CEGIS should run now.
-
-        After the initial model, synthesis is evidence-gated: it only fires at a
-        plan boundary after the model mispredicted a transition/reward in the
-        just-executed action sequence. Analyzer ``force_now`` requests are kept
-        as focus hints, not as permission to synthesize without a fresh
-        execution mismatch.
-        """
         if len(self.replay_buffer) < self.config.min_transitions_for_synthesis:
             return False
 
@@ -3847,7 +3610,6 @@ class SynthesisEngine:
                 / self.SYNTH_CONTROL_FILENAME)
 
     def _write_synth_status(self, step: int) -> None:
-        """Write synth_status.json for the analyzer to consult."""
         status = {
             "synthesis_count": self.synthesis_count,
             "last_synthesis_step": self.last_synthesis_step,
@@ -3934,7 +3696,6 @@ class SynthesisEngine:
             )
 
     def _read_synth_control(self) -> dict:
-        """Read analyzer-written synth_control.json. Returns empty dict on miss."""
         path = self._synth_control_path()
         if not path.exists():
             return {}
@@ -3947,7 +3708,6 @@ class SynthesisEngine:
         return {}
 
     def _consume_synth_control_force(self) -> None:
-        """Remove force_now from synth_control.json after honoring it."""
         path = self._synth_control_path()
         try:
             data = json.loads(path.read_text())
@@ -3978,7 +3738,6 @@ class SynthesisEngine:
             )
 
     def _compose_replay(self) -> Path | None:
-        """Compile per-step PNGs into a replay video (MP4 via cv2, or GIF fallback). Returns path or None."""
         actions_path = self.frames_dir / "actions.jsonl"
         if not actions_path.exists():
             return None
@@ -4052,7 +3811,6 @@ class SynthesisEngine:
     def _record_step_frame(
         self, step: int, transition: "TransitionRecord",
     ) -> None:
-        """Save after-state PNG, per-tick intermediate PNGs, and actions.jsonl manifest entry."""
         get_frame = getattr(self.env, "get_frame", None)
         png_path = self.frames_dir / f"step_{step:04d}.png"
         if get_frame is not None:
@@ -4126,7 +3884,6 @@ class SynthesisEngine:
         tick_paths: list[Path],
         final_path: Path,
     ) -> dict:
-        """Append an animated-step manifest entry and return it."""
         before_name = (
             "initial.png" if step == 0 else f"step_{step - 1:04d}.png"
         )
@@ -4158,7 +3915,6 @@ class SynthesisEngine:
         return event
 
     def _run_animation_analysis(self, step: int, event: dict) -> None:
-        """Run an optional backend-matched animation reviewer for an animated step."""
         if not getattr(self.config, "animation_analysis_enabled", False):
             return
         max_events = int(
@@ -4248,7 +4004,6 @@ class SynthesisEngine:
             )
 
     def _recent_analyzer_notes(self, n: int = 8) -> str:
-        """Return the last N [NOTE source=analyzer] lines from run_log."""
         path = self.output_dir / "run_log.txt"
         if not path.exists():
             return ""
@@ -4263,11 +4018,6 @@ class SynthesisEngine:
         return "\n".join(notes[-n:])
 
     def _append_planner_feedback(self, event: dict) -> None:
-        """Append a planner-outcome event to planner_feedback.jsonl (best-effort).
-
-        Captures planner timeouts, no-plan, env divergences, and successes so the
-        next synthesis round can read them and judge / improve the planner.
-        """
         try:
             rec = {
                 "synthesis_count": int(self.synthesis_count),
@@ -4282,7 +4032,6 @@ class SynthesisEngine:
             pass
 
     def _recent_planner_feedback(self, n: int = 10) -> str:
-        """Return the last N planner_feedback.jsonl lines (compact), or ''."""
         path = self.output_dir / "planner_feedback.jsonl"
         if not path.exists():
             return ""
@@ -4294,12 +4043,6 @@ class SynthesisEngine:
 
     @staticmethod
     def _frames_equal(a, b, mask=None) -> bool:
-        """Pixel equality between two 2D palette grids (list or numpy).
-
-        When ``mask`` (a set of (row, col) cells) is given, those cells are
-        ignored in the comparison -- used for the synth-declared move-counter
-        region the model is permitted not to predict (see _validate_counter_mask).
-        """
         if a is None or b is None:
             return False
         try:
@@ -4323,14 +4066,6 @@ class SynthesisEngine:
 
     @staticmethod
     def _validate_counter_mask(cells):
-        """Validate a synth-declared move-counter mask and return it as a
-        frozenset of (row, col), or an EMPTY frozenset if absent/invalid.
-
-        Fail closed: a model may only exclude ONE continuous line of cells at
-        most 2 pixels wide (the move-counter HUD strip, whose per-level
-        quantization is hard to predict). It may NOT mask an arbitrary region to
-        dodge verification of real mechanics.
-        """
         try:
             pts = {(int(r), int(c)) for (r, c) in (cells or [])}
         except Exception:
@@ -4352,8 +4087,6 @@ class SynthesisEngine:
         return frozenset(pts)
 
     def _load_div_model(self):
-        """Import the latest synthesised transition_function in-process, cached by
-        synthesis round. Returns the callable or None."""
         if self.synthesis_count == 0:
             return None
         if self._div_model_round == self.synthesis_count:
@@ -4403,15 +4136,6 @@ class SynthesisEngine:
         reward: float = 0.0,
         done: bool = False,
     ) -> None:
-        """Record whether the LIVE model mispredicted this just-executed transition.
-
-        Captured now (before CEGIS re-synthesises and heals it) and
-        accumulated for the next analyzer call. Checks both transition
-        prediction and reward/done, because CEGIS should also fire when the
-        dynamics are right but the goal predicate is wrong. Runs the model
-        in-process under a short alarm so a pathological model cannot hang the
-        engine.
-        """
         self._last_pred_state = None
         diverged = False
         reasons: list[str] = []
@@ -4545,17 +4269,9 @@ class SynthesisEngine:
         })
 
     def _recent_execution_diverged(self) -> bool:
-        """Whether unrepaired model-error debt is active."""
         return self._model_error_first_step is not None
 
     def _collect_divergence_images(self, max_images: int = 8) -> list[dict]:
-        """Build the divergence-image set for the next analyzer call from the plan
-        executed since the last call, then clear the window.
-
-        The first action that diverged contributes its before and after frames.
-        Every action after it in the executed plan contributes its after frame
-        (once the model is wrong, the rest of the plan ran in an unexpected reality).
-        """
         window = self._steps_since_analyzer
         self._steps_since_analyzer = []
         first = next(
@@ -4584,13 +4300,6 @@ class SynthesisEngine:
     def _refresh_spriteless_diagnostics(
         self, step: int, *, force: bool = False, reason: str = "",
     ) -> None:
-        """Refresh ETA/matrix artifacts for frames-only runs using the synth's
-        ``extract_objects(frame)`` checklist deliverable.
-
-        This is best-effort and never blocks exploration: a missing or broken
-        extractor records a diagnostic artifact and leaves the latest usable
-        matrix intact.
-        """
         if not self.config.frames_only or self.synthesis_count <= 0:
             return
         if self.config.ablate_epistemic:
@@ -4666,17 +4375,11 @@ class SynthesisEngine:
             )
 
     def _epistemic_transitions(self) -> list[dict]:
-        """Object-level transitions the epistemic layer reads: sprite records
-        in sprite mode, the synth-extracted object replay in frames-only."""
         if self.config.frames_only:
             return self._spriteless_replay
         return self._serialize_transitions()
 
     def _refresh_spriteless_substrate(self, step: int) -> None:
-        """Frames-only counterpart of the per-step sigma block. The extractor
-        may rename or retype objects at any synthesis, so sigma is rebuilt from
-        the object replay instead of observed incrementally. Goal modes are
-        not buffer-derivable and are re-injected from the last grounding."""
         transitions = self._spriteless_replay
         if not transitions:
             return
@@ -4686,6 +4389,7 @@ class SynthesisEngine:
                 actions = list(self.env.get_available_actions())
             except Exception:
                 actions = None
+            # extract_objects can rename objects after a synthesis, so rebuild sigma each time.
             sigma = SigmaState.from_transitions(
                 transitions,
                 available_actions=actions,
@@ -4710,7 +4414,6 @@ class SynthesisEngine:
             )
 
     def _model_is_consistent(self) -> bool:
-        """Run test_runner on the current code against the full replay buffer. Returns True iff all pass."""
         latest_ws = (
             self.output_dir / "synthesis"
             / f"run_{self.synthesis_count:03d}"
@@ -4761,7 +4464,6 @@ class SynthesisEngine:
         images: list[Path] | None = None,
         timeout_s: int | None = None,
     ) -> dict:
-        """Run a small review subagent on the same backend as synthesis."""
         prompt = sanitize_model_visible_text(prompt)
         safe_label = "".join(
             ch if ch.isalnum() or ch in ("_", "-") else "_"
@@ -4881,14 +4583,6 @@ class SynthesisEngine:
             return {"error": str(exc), "duration_s": round(time.time() - t0, 1)}
 
     def _wrap_claude_subprocess(self, cmd: list, ws_dir: Path):
-        """Apply the configured claude isolation to a synth-side ``claude`` argv.
-
-        Returns (cmd, popen_kwargs, container_name|None). Mirrors the analyzer's
-        AgenticConsumer._wrap_claude_cmd: "docker" runs the claude-agent
-        container on the filtered network (returning a name for timeout cleanup).
-        "bwrap" (default) keeps the local bubblewrap sandbox. No isolation only
-        when subprocess_sandbox is off.
-        """
         from .sandbox import claude_popen_kwargs
         if not self.config.subprocess_sandbox:
             return cmd, claude_popen_kwargs(), None
@@ -4914,7 +4608,6 @@ class SynthesisEngine:
         return cmd, claude_popen_kwargs(), None
 
     def _docker_rm(self, name: str | None) -> None:
-        """Best-effort force-remove a claude-agent container (timeout cleanup)."""
         if not name:
             return
         try:
@@ -4927,9 +4620,6 @@ class SynthesisEngine:
             pass
 
     def _run_critique(self, ws_dir: Path) -> str:
-        """Adversarial generalization critique of the just-synthesised game_engine.py.
-        Writes findings to output_dir/last_critique.md for the next round's context.
-        No-op unless config.critique_enabled. Never blocks synthesis."""
         if not getattr(self.config, "critique_enabled", False):
             return ""
         if not (ws_dir / "game_engine.py").exists():
@@ -5121,12 +4811,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
         return value.tolist() if hasattr(value, "tolist") else value
 
     def _frame_level_cache_entries(self) -> dict[int, list[list[int]]]:
-        """Return all observed frames-only level-entry caches.
-
-        Older checkpoints can have a sparse ``level_frames`` map. Reconstruct
-        missing entries from reward/done transitions, whose after-frame is the
-        next level's hand-authored entry frame in ARC-AGI-3.
-        """
         entries: dict[int, list[list[int]]] = {}
         for lvl_idx, frame in self.level_frames.items():
             if frame is None:
@@ -5166,13 +4850,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
         return entries
 
     def _write_level_initial_caches(self, ws_dir: Path) -> None:
-        """Write l<N>_initial.pkl files for every observed level entry.
-
-        These caches are permitted for transition_function on level-entry and
-        reset transitions. The verifier statically rejects reward_function cache
-        reads, so hiding the current level entry only makes the latest
-        level-advance transition impossible to model.
-        """
         if self.config.frames_only:
             cache_entries = self._frame_level_cache_entries()
             cache_kind = "level-frame-cache"
@@ -5602,9 +5279,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
             )
 
         self._consume_xi_updates(ws_dir)
-        # The NL sweep does NOT run here. _update_world_model_after_synthesis
-        # re-creates the handoff artifacts below, so a sweep at this point
-        # deletes files that are immediately rewritten. It runs after.
         if self.config.frames_only:
             self._refresh_spriteless_diagnostics(
                 step, force=True, reason="post_synthesis",
@@ -5646,14 +5320,8 @@ the needed rule, keep the verifier passing, state the uncertainty in
             shared_doc_snapshot=shared_doc_snapshot,
         )
 
+        # Keep this after the handoff files are written, or it removes files that get rewritten.
         if self.config.ablate_natural_language:
-            # AFTER the handoff artifacts are written, not before: an earlier
-            # sweep deletes files that _update_world_model_after_synthesis
-            # immediately recreates. Both directories, because agent output
-            # lands in the workspace and is captured into the run root.
-            # game_engine.py is not stripped anywhere: the verifier rejects
-            # comments outright, so a passing model has none and a strip would
-            # only hide non-compliance.
             for d in (ws_dir, self.output_dir):
                 self._enforce_python_artifacts(d)
                 self._refuse_non_python_artifacts(d)
@@ -5695,8 +5363,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
     def _invoke_claude(
         self, ws_dir: Path, prompt: str, escalating: bool = False,
     ) -> dict:
-        """Spawn the synth model. Dispatches to Codex when backend=='codex',
-        else Claude Code. When escalating, switches model and prepends context."""
         if self.config.backend == "codex":
             return self._invoke_codex_synth(ws_dir, prompt)
         claude_path = shutil.which("claude")
@@ -5888,12 +5554,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
             return {"duration_s": round(duration, 1), "error": str(e)}
 
     def _invoke_codex_synth(self, ws_dir: Path, prompt: str) -> dict:
-        """Run a synthesis turn in the locked-down Codex container.
-
-        The synth edits game_engine.py in ws_dir (file-based contract, identical
-        to the claude path). The engine re-runs test_runner.py afterwards. The
-        run dir is mounted RO with ws_dir overlaid RW. Egress is API-only.
-        """
         from . import codex_backend as cx
         prompt = sanitize_model_visible_text(prompt)
         ws_dir = ws_dir.resolve()
@@ -6024,7 +5684,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
         }
 
     def _run_tests(self, ws_dir: Path) -> str:
-        """Run test_runner.py and return result string. Full output saved to test_runner_output.txt."""
         ws_abs = ws_dir.resolve()
         try:
             from .sandbox import claude_popen_kwargs
@@ -6054,7 +5713,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
 
     @staticmethod
     def _sum_round_tokens(chat_jsonl: Path) -> dict[str, int]:
-        """Sum token counts across stream-json events for one synthesis round."""
         totals = {
             "input_tokens": 0,
             "output_tokens": 0,
@@ -6091,7 +5749,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
 
     @staticmethod
     def _parse_transition_accuracy(accuracy_str: str) -> tuple[int, int]:
-        """Extract (passed, total) from the TRANSITION clause of an accuracy string."""
         import re as _re
         m = _re.search(
             r"TRANSITION:\s*(\d+)\s*/\s*(\d+)\s*passed",
@@ -6110,7 +5767,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
         duration_s: float,
         escalating: bool,
     ) -> None:
-        """Append one cost-to-soundness row to synthesis_curve.jsonl."""
         ge_path = ws_dir / "game_engine.py"
         try:
             loc = sum(
@@ -6143,7 +5799,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
             f.write(json.dumps(row, default=str) + "\n")
 
     def _serialize_transitions(self) -> list[dict]:
-        """Convert replay buffer to plain dicts. Under frames_only, omits sprite keys."""
         out = []
         for t in self.replay_buffer:
             if self.config.frames_only:
@@ -6194,7 +5849,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
                 self.best_reward_accuracy = max(self.best_reward_accuracy, acc)
 
     def _extract_goal_in_english(self, ws_dir: Path) -> str | None:
-        """Return the text of the synth's "# GOAL: ..." comment from game_engine.py, or None."""
         code_path = ws_dir / "game_engine.py"
         if not code_path.exists():
             return None
@@ -6216,7 +5870,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
         *,
         shared_doc_snapshot: dict[str, str] | None = None,
     ) -> None:
-        """Persist synth-written text artifacts that feed later prompts."""
         artifacts = [
             (self._doc("synth_learnings"), "synth_learnings", "SYNTH_LEARNINGS", 8000),
             ("critique_response.md", "critique_response", "CRITIQUE", 8000),
@@ -6276,10 +5929,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
                 pass
 
     def _consume_xi_updates(self, ws_dir: Path) -> None:
-        """Read xi_updates.json, verify each proposed feature against worst-K strata, and apply survivors.
-
-        A missing file is a no-op.
-        """
         if self.config.ablate_epistemic:
             return
         path = ws_dir / "xi_updates.json"
@@ -6452,7 +6101,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
             pass
 
     def _extract_reward_function(self, ws_dir: Path) -> str | None:
-        """Return the source of reward_function from game_engine.py, or None if absent."""
         code_path = ws_dir / "game_engine.py"
         if not code_path.exists():
             return None
@@ -6489,7 +6137,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
         *,
         shared_doc_snapshot: dict[str, str] | None = None,
     ):
-        """Extract reward_function, rebuild the world model doc, append synthesis feedback."""
         reward_src = self._extract_reward_function(ws_dir)
         if reward_src:
             self.goal_hypothesis_code = reward_src
@@ -6529,7 +6176,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
     SNAPSHOTS_DIRNAME = "snapshots"
 
     def _snapshot_due(self, step: int) -> bool:
-        """True when a stop-and-snapshot target is set and this step is at/after it."""
         target = self.config.stop_and_snapshot_at_step
         return target is not None and step >= int(target)
 
@@ -6541,16 +6187,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
     def _take_snapshot(
         self, completed_step: int, *, reason: str = "",
     ) -> Path | None:
-        """Write a self-contained, reloadable copy of the ENTIRE run directory.
-
-        The snapshot captures completion through ``completed_step``: a fresh
-        checkpoint.pkl plus every on-disk artifact (frames, syntheses, analyzer
-        logs, run_log, ontology trace, consumer workspace). Resuming a run from
-        the snapshot's checkpoint.pkl reproduces the run identically -- the env
-        is rebuilt by replaying _actions_taken and the remaining state is fully
-        restored. The copy dereferences symlinks so the snapshot never points
-        back at the live dir (no future-state leak) and is portable.
-        """
         self._save_checkpoint(completed_step)
         self._snapshot_completed_step = int(completed_step)
 
@@ -6630,7 +6266,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
     CHECKPOINT_FILENAME = "checkpoint.pkl"
 
     def _save_checkpoint(self, step: int) -> None:
-        """Atomically save engine state. Env state is not pickled. It is restored by action replay on resume."""
         try:
             ck = {
                 "schema_version": 9,
@@ -6730,7 +6365,7 @@ the needed rule, keep the verifier passing, state the uncertainty in
                 pass
 
     def load_checkpoint(self, path: str | Path) -> None:
-        """Restore checkpoint state and replay actions to re-sync env. Call after __init__, before run()."""
+        """Restore a saved run and replay its actions so the game matches."""
         path = Path(path)
         with open(path, "rb") as f:
             ck = pickle.load(f)
@@ -6899,9 +6534,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
                 if sigma_ck:
                     self.sigma = SigmaState.from_dict(sigma_ck)
                 else:
-                    # Pre-v9 checkpoint: rebuild the buffer-derivable Σ state
-                    # by replay. k_att, goal modes, and the prequential
-                    # accumulators are not buffer-derivable and start fresh.
                     self.sigma = SigmaState.from_transitions(
                         self._serialize_transitions(),
                         available_actions=self.env.get_available_actions(),
@@ -6921,7 +6553,6 @@ the needed rule, keep the verifier passing, state the uncertainty in
                         "pre-v9 checkpoint: sigma rebuilt from buffer "
                         "(k_att / goal modes / prequential state reset)",
                     )
-                # not persisted: the running config decides U_c semantics
                 self.sigma.model_resolved = bool(
                     self.config.sigma_model_resolved
                 )

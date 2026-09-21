@@ -1,30 +1,5 @@
-"""Mechanical audit of the sprite role labels against the replay buffer.
+"""Check role labels for object tags against the replay buffer."""
 
-A semantic label can never be verified mechanically, but every label carries
-behavioral commitments and commitments are checkable. The audit grades every
-flag by evidence strength, and only the deductive grade triggers automatic
-disposal:
-
-  refuted             a decorative label whose inertness commitment is
-                      falsified by a cited transition (deductive, auto-retired
-                      by the engine)
-  contradictions      two same-label tags behave differently in a shared
-                      (action, context) stratum, both near-deterministic at
-                      exact-delta granularity. Proves the disjunction
-                      "mislabel OR missing context feature" and names both
-                      disposal routes without picking one
-  anomalies           correlational flags: role-posterior disagreement,
-                      controllability mismatch. Never auto-acted-on
-  unlabeled_relevant  tags with reward-adjacent or action-influence evidence
-                      and no committed role. A statement of absence
-  merge_compatible    differently-labeled pairs indistinguishable so far,
-                      with sample support attached. The weakest grade
-
-Grade A and B flags cite witness timesteps so every claim is independently
-re-derivable from the buffer. Labels feed only rel(o) and prompt annotations,
-never eta, C, coverage, or the verifier, so a wrong label misdirects
-exploration priority at worst.
-"""
 from __future__ import annotations
 
 from collections import Counter, defaultdict
@@ -87,8 +62,6 @@ def _record_delta(bo: dict, ao: dict) -> dict[str, int]:
 def _refuted_commitments(
     transitions: list[dict], committed: dict[str, str],
 ) -> list[dict]:
-    """Grade A. gone and born pairings are excluded as falsifiers because the
-    pairing heuristic can fabricate them."""
     commitments: dict[str, tuple[str, str]] = {}
     for tag, alias in committed.items():
         head = _head(alias)
@@ -129,8 +102,6 @@ def _refuted_commitments(
 def _delta_strata(
     transitions: list[dict], committed_features: list[dict] | None,
 ) -> dict[str, dict[str, dict]]:
-    """tag -> cell key -> {counter over exact-delta outcomes, first witness
-    timestep per outcome}. Deduped per (tag, cell, delta) per transition."""
     strata: dict[str, dict[str, dict]] = defaultdict(dict)
     for t in transitions:
         before = t.get("before_state") or []
@@ -175,9 +146,6 @@ def _pair_contradictions(
     tag_a: str, tag_b: str, strata: dict,
     n_min: int, modal_frac_min: float,
 ) -> tuple[list[dict], int]:
-    """Shared strata where both tags are near-deterministic. Returns the
-    contradicting cells and the count of cells where the modal deltas AGREE
-    (the shared-support figure Grade E reports)."""
     contradictions: list[dict] = []
     agreements = 0
     cells = set(strata.get(tag_a, {})) & set(strata.get(tag_b, {}))
@@ -207,8 +175,6 @@ def _label_contradictions(
     committed: dict[str, str], strata: dict,
     n_min: int, modal_frac_min: float,
 ) -> list[dict]:
-    """Grade B: same-label tag pairs that are not behaviorally exchangeable
-    under the current context vocabulary."""
     by_label: dict[str, list[str]] = defaultdict(list)
     for tag, alias in committed.items():
         by_label[alias].append(tag)
@@ -243,7 +209,6 @@ def _anomalies(
     tag_of_name: dict[str, str],
     posterior_margin: float, cai_controllable: float,
 ) -> list[dict]:
-    """Grade C. Correlational flags only, never auto-acted-on."""
     out: list[dict] = []
 
     role = compute_role_posterior(transitions, aliases)
@@ -299,10 +264,6 @@ def _delta_changed_tags(transition: dict) -> set[str]:
 
 
 def _reward_changed_tags(transitions: list[dict]) -> dict[str, int]:
-    """Attribute-delta changes only, never gone or born. The ARC-3 reward
-    transition is also the level sweep where every object reads gone or
-    born, so the completing move is looked up in the previous same-level
-    transition."""
     out: dict[str, int] = {}
     for i, t in enumerate(transitions):
         if float(t.get("reward", 0.0) or 0.0) <= 0.0:
@@ -321,7 +282,6 @@ def _unlabeled_relevant(
     cai: dict[str, float] | None, tag_of_name: dict[str, str],
     cai_relevant: float,
 ) -> list[dict]:
-    """Grade D. A statement of absence over the label table."""
     out: dict[str, dict] = {}
     for tag, ts in _reward_changed_tags(transitions).items():
         if tag not in committed:
@@ -365,8 +325,6 @@ def _merge_compatible(
     committed: dict[str, str], strata: dict,
     ontology_latest: dict | None, n_min: int, modal_frac_min: float,
 ) -> list[dict]:
-    """Grade E. Indistinguishability is never provable from finite data, so
-    entries carry their support and are worded as compatible-so-far."""
     out: list[dict] = []
     for tag_a, tag_b, reduction in _parse_merge_candidates(ontology_latest):
         if reduction <= 0:
@@ -403,6 +361,7 @@ def label_audit(
     cai_relevant: float = DEFAULT_CAI_RELEVANT,
     cai_controllable: float = DEFAULT_CAI_CONTROLLABLE,
 ) -> dict[str, Any]:
+    """Check each role label against what its objects did in the replay buffer."""
     committed = _committed_labels(aliases)
     committed_nondecorative = {
         tag: alias for tag, alias in committed.items()

@@ -1,7 +1,5 @@
-"""Agentic consumer: a Claude Code subprocess that picks actions via Bash + Read + Grep over the engine's workspace artifacts.
+"""The acting agent. A Claude Code run that reads the workspace and picks the next actions."""
 
-Output protocol: the agent writes next_actions.json containing {"plan": [<action_id>, ...], "reasoning": "..."}. The engine reads it and feeds it into PLAN-mode machinery.
-"""
 from __future__ import annotations
 
 import base64
@@ -17,14 +15,6 @@ from typing import Any
 
 
 def _load_prompt_loader():
-    """Import the sibling ``prompts.py`` loader by file path.
-
-    A plain ``from .prompts import load_prompt`` is unsafe here: this module
-    is loaded by some entrypoints (e.g. play.py) via
-    importlib under stub parent packages that have no ``__path__``, so a
-    relative import of an un-preloaded submodule fails. Loading by path works
-    in every scheme.
-    """
     path = Path(__file__).resolve().parent / "prompts.py"
     spec = _importlib_util.spec_from_file_location(
         "_synth_loop_prompts_loader", path
@@ -371,14 +361,7 @@ def compose_system_prompt(
     *, frames_only: bool, epistemic_visible: bool,
     python_only: bool = False,
 ) -> str:
-    """Fill the epistemic guidance tokens. The ablation arm must not receive
-    epistemic vocabulary anywhere, or the baseline is prompt-contaminated.
-
-    ``python_only`` is the natural-language ablation. It belongs here and not
-    only on the synthesizer: this agent is the one explicitly told to keep an
-    interpretable NL account of the world, so an NL ablation that leaves it
-    alone ablates nothing.
-    """
+    """Build the acting agent's system prompt for the current run settings."""
     if frames_only:
         base = SYSTEM_PROMPT_FRAMES_ONLY
     else:
@@ -439,9 +422,6 @@ def _is_subprocess_crash(out_txt: str, err_txt: str) -> bool:
 
 
 def _is_stale_session(out_txt: str, err_txt: str) -> bool:
-    """A --resume/--continue session id that no longer exists, e.g. after a
-    checkpoint resume under a different CLAUDE_CONFIG_DIR. Retrying it can
-    never succeed; the retry must start a fresh session instead."""
     blob = out_txt + "\n" + err_txt
     return "No conversation found with session ID" in blob
 
@@ -463,8 +443,6 @@ def _build_tools_readme(
     escape_section = load_prompt("analyzer/object_centric/tools_readme_escape.txt").replace(
         "%%ACTIONS_STR_SPACES%%", actions_str.replace(", ", " ")
     )
-    # The epistemic-signal section mirrors exactly what is staged in the
-    # workspace (the ablation arms differ ONLY here and in the staged files).
     signal_parts: list[str] = []
     if stage_epistemic:
         signal_parts.append(
@@ -517,7 +495,6 @@ def _build_tools_readme_frames(
     stage_epistemic: bool = True,
     stage_goal_grounding: bool = False,
 ) -> str:
-    """TOOLS.md for the frames-only regime (no type aliases, no view_sprite)."""
     sections = [
         _FRAMES_ETA_SECTION if stage_epistemic else "",
         load_prompt("analyzer/shared/tools_readme_fluents.txt")
@@ -545,7 +522,6 @@ def _build_tools_readme_frames(
 
 
 def _safe_serialise_state(state: list[dict]) -> list[dict]:
-    """Convert numpy scalars and non-JSON-serialisable values to plain Python types."""
     out = []
     for o in state:
         d = {}
@@ -572,7 +548,6 @@ def _clip_prompt_text(value: Any, limit: int = 1200) -> str:
 
 
 def _synth_handoff_from_status(synth_status_src: Path) -> str:
-    """Build an explicit prompt block from synth_status.json handoff fields."""
     try:
         status = json.loads(synth_status_src.read_text())
     except Exception:
@@ -643,8 +618,6 @@ def _synth_handoff_from_status(synth_status_src: Path) -> str:
 
 
 def _grounded_goal_from_artifact(artifact_path: Path) -> str:
-    """Prompt block from goal_requirements.json: the grounded goal hypothesis,
-    its accepted requirements, and the open coverage holes."""
     try:
         payload = json.loads(artifact_path.read_text())
     except Exception:
@@ -713,17 +686,6 @@ def _setup_workspace(
     stage_label_audit: bool = True,
     stage_goal_grounding: bool = False,
 ) -> bool:
-    """Stage artifacts into workspace_dir and return has_wm.
-
-    Under frames_only, current_state.json carries a raw frame field. If the
-    synth has exported a spriteless object abstraction, epistemic/ontology
-    diagnostics are still staged for the analyzer.
-
-    ``stage_epistemic`` / ``stage_sigma`` are the ablation-arm switches: they
-    control both which signal artifacts appear in the workspace and which
-    TOOLS.md sections describe them. Hiding actively unlinks a previously
-    staged artifact so a reused workspace cannot leak across arms.
-    """
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
     def _relative_symlink(src: Path, dst: Path) -> None:
@@ -941,10 +903,6 @@ def _is_rate_limited(out_txt: str, err_txt: str, rc: int,
 
 
 def _read_plan(workspace_dir: Path) -> tuple[list, str]:
-    """Read next_actions.json and return (plan, reasoning_or_error).
-
-    Normalises plan items: a bare int or ACTION-string becomes an int, and ACTION6 dicts become {"action_id":6,"x":int,"y":int}. Returns ([], error_str) on any failure.
-    """
     p = workspace_dir / "next_actions.json"
     if not p.exists():
         return [], "no next_actions.json written"
@@ -1048,7 +1006,7 @@ def _validate_available_plan(
 
 
 class AgenticConsumer:
-    """Claude Code subprocess action selector. Writes next_actions.json and reads it back as a plan."""
+    """Runs the acting agent and reads back its plan."""
 
     def __init__(
         self,
@@ -1111,13 +1069,6 @@ class AgenticConsumer:
     def _wrap_claude_cmd(
         self, cmd: list[str], workspace_dir: Path
     ) -> tuple[list[str], dict[str, Any]]:
-        """Apply the configured claude isolation to a `claude ...` argv.
-
-        Returns (possibly-wrapped cmd, Popen kwargs). For "docker" it sets
-        self._docker_container_name so a timeout can `docker rm -f` the run.
-        Resource bounding for docker is the container's (--memory/--cpus/--pids).
-        The host rlimit preexec is only meaningful for the bwrap and none paths.
-        """
         from .sandbox import claude_popen_kwargs
         self._docker_container_name = None
         if not self.sandbox:
@@ -1143,7 +1094,6 @@ class AgenticConsumer:
         return cmd, claude_popen_kwargs()
 
     def _cleanup_docker_container(self) -> None:
-        """Best-effort force-remove the current call's docker container."""
         name = self._docker_container_name
         if not name:
             return
@@ -1157,12 +1107,6 @@ class AgenticConsumer:
             pass
 
     def _run_compact_session(self, workspace_dir: Path) -> None:
-        """Summarise the analyzer's --continue session in place via /compact.
-
-        Keeps continuity and a coherent prompt cache while shrinking context,
-        unlike a fresh session (which discards the conversation). Best-effort:
-        a failure just leaves the session unchanged. Claude path only.
-        """
         if self.backend == "codex":
             return
         claude = shutil.which("claude")
@@ -1229,7 +1173,7 @@ class AgenticConsumer:
         stage_label_audit: bool = True,
         stage_goal_grounding: bool = False,
     ) -> dict[str, Any]:
-        """Run one consumer call and return a result dict with plan, reasoning, duration_s, returncode, and reason."""
+        """Run one agent call and return its plan and reasoning."""
         self.call_count += 1
         _setup_workspace(
             workspace_dir=workspace_dir,
@@ -1601,9 +1545,6 @@ LEGAL ACTION CONTRACT: you may output and hypothesize only action ids listed in 
         step: int,
         level: int,
     ) -> dict[str, Any]:
-        """Codex backend of choose_actions: run one turn in the locked-down
-        codex-agent container. Same file contract -- the agent writes
-        next_actions.json, which _read_plan parses back."""
         from . import codex_backend as cx
 
         run_dir = workspace_dir.resolve().parent

@@ -1,24 +1,5 @@
-"""OpenAI Codex backend: run an analyzer / synth turn inside the locked-down
-codex-agent Docker container instead of the local `claude` CLI.
+"""Run an agent turn with OpenAI Codex inside the Docker sandbox."""
 
-Network isolation is enforced at the network
-layer, not by trusting the model: the container runs on `codex-filtered`, a
-Docker bridge with host NAT disabled. At startup it briefly runs as root only
-to point its default route and DNS at `codex-gateway`, then drops to a
-non-sudo user before Codex starts. The gateway NATs/forwards only allowlisted
-OpenAI/ChatGPT IPs learned through dnsmasq+nftset and drops everything else.
-See codex_backend/ for the images, gateway, and egress_test.sh proof.
-
-Filesystem isolation: only the run dir (the model's own output) and CODEX_HOME
-(auth) are mounted. The game source, repo, and the rest of $HOME are never
-mounted, so they are invisible -- the same posture as the bwrap claude path.
-
-The contract is file-based and identical to the claude backend: the analyzer
-writes next_actions.json into its workspace, and the synth edits game_engine.py.
-This module only has to (a) deliver the prompt + any images, (b) run the turn
-to completion through the gateway, and (c) report success/usage + the codex
-session id for `resume` continuity (the analogue of `claude --continue`).
-"""
 from __future__ import annotations
 
 import json
@@ -77,12 +58,6 @@ def _live_gateway_ip() -> str | None:
 
 
 def gateway_ip(explicit: str | None = None) -> str | None:
-    """The transparent gateway's internal IP (agent default route + DNS).
-    Uses the explicit value, else the live codex-gateway container.
-
-    Do not blindly trust gateway_internal_ip.txt after WSL/Docker restarts: a
-    stale route produces Codex reconnect storms that look like API flakiness.
-    """
     if explicit:
         return explicit
     f = Path(__file__).resolve().parents[3] / "codex_backend" / "gateway_internal_ip.txt"
@@ -103,7 +78,6 @@ def gateway_ip(explicit: str | None = None) -> str | None:
 
 
 def _extract_session_id(events: list[dict]) -> str | None:
-    """Pull the codex session/thread id out of the --json event stream."""
     for ev in events:
         for k in ("session_id", "thread_id", "conversation_id"):
             v = ev.get(k)
@@ -119,7 +93,6 @@ def _extract_session_id(events: list[dict]) -> str | None:
 
 
 def _scan_events(out_text: str) -> tuple[list[dict], bool, dict[str, int]]:
-    """Parse --json lines. Returns (events, turn_failed, usage)."""
     events: list[dict] = []
     turn_failed = False
     turn_completed = False
@@ -151,11 +124,6 @@ def _scan_events(out_text: str) -> tuple[list[dict], bool, dict[str, int]]:
 
 
 def _is_quota_limited(out_text: str, err_text: str) -> bool:
-    """Detect hard Codex account quota exhaustion.
-
-    This is different from a transient transport failure: retrying immediately
-    just creates new failed turns until the account reset time.
-    """
     text = f"{out_text}\n{err_text}".lower()
     quota_markers = (
         "you've hit your usage limit",
@@ -184,11 +152,6 @@ def _docker_resource_flags(
     memory_swap: str | None = None,
     pids_limit: str | None = None,
 ) -> list[str]:
-    """Default Codex containers to bounded local resource use.
-
-    Any limit may be disabled with the corresponding env var set to "0" or
-    "none". These are safety rails for local sweeps, not security boundaries.
-    """
     cpus = cpus if cpus is not None else os.environ.get(
         "CODEX_DOCKER_CPUS", DEFAULT_DOCKER_CPUS
     )
@@ -233,17 +196,6 @@ def build_codex_cmd(
     docker_memory_swap: str | None = None,
     docker_pids_limit: str | None = None,
 ) -> list[str]:
-    """Build the `docker run ... codex exec` command for the airtight gateway.
-
-    The container starts as root ONLY to point its default route at the egress
-    gateway, then drops to the unprivileged image user (via setpriv) -- which has
-    no sudo and cannot re-route -- to run codex. So the model is confined to the
-    gateway's domain allowlist with no bypass. supports_websockets=false forces
-    the HTTPS/SSE transport (codex's ChatGPT websocket won't traverse the gateway
-    and codex ignores HTTP_PROXY). The run dir is mounted RO with
-    the workspace overlaid RW. CODEX_HOME is mounted RW for auth and session.
-    `images` are in-container /run/... paths passed to codex via -i.
-    """
     run_dir = run_dir.resolve()
     workspace_dir = workspace_dir.resolve()
     rel = workspace_dir.relative_to(run_dir)
@@ -316,12 +268,6 @@ def run_codex_turn(
     docker_memory_swap: str | None = None,
     docker_pids_limit: str | None = None,
 ) -> dict[str, Any]:
-    """Run one codex turn to completion. Prompt is delivered on stdin.
-
-    Returns {session_id, returncode, turn_failed, usage, duration_s, reason}.
-    The model's actual output is the files it wrote into the workspace. This
-    only reports whether the turn ran cleanly, plus the session id for resume.
-    """
     container_name = f"arc-codex-{os.getpid()}-{uuid.uuid4().hex[:12]}"
     cmd = build_codex_cmd(
         workspace_dir=workspace_dir, run_dir=run_dir, container_cd=container_cd,

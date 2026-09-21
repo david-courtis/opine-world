@@ -1,8 +1,5 @@
-"""Bubblewrap-based filesystem sandbox for analyzer/synthesis subprocesses.
+"""Sandbox for agent subprocesses, using bubblewrap or Docker."""
 
-Prevents subprocesses from reading game source outside their workspace. Network is
-not isolated. Falls back to unsandboxed execution with a warning when bwrap is absent.
-"""
 from __future__ import annotations
 
 import json
@@ -59,12 +56,6 @@ def _parse_bytes(raw: str | None, default: str) -> int:
 
 
 def _claude_limit_values() -> dict[str, int]:
-    """Hard caps inherited by local Claude Code and all Bash/Python children.
-
-    Codex runs are already container-capped. These rlimits cover the local
-    Claude path, including tool-launched planner probes that otherwise outlive
-    the parent prompt and can exhaust WSL.
-    """
     if not _env_flag("ARC3_CLAUDE_RLIMITS", True):
         return {}
     memory_raw = (
@@ -112,7 +103,6 @@ def describe_claude_resource_limits() -> str:
 
 
 def claude_resource_preexec():
-    """Return a preexec_fn that applies inherited local-Claude rlimits."""
     limits = _claude_limit_values()
     if not limits:
         return None
@@ -143,7 +133,6 @@ def claude_resource_preexec():
 
 
 def claude_popen_kwargs() -> dict[str, Any]:
-    """Popen kwargs for local Claude so its tool subprocesses are bounded."""
     kwargs: dict[str, Any] = {"start_new_session": True}
     preexec = claude_resource_preexec()
     if preexec is not None:
@@ -156,7 +145,6 @@ def terminate_process_group(
     *,
     grace_s: float = 3.0,
 ) -> None:
-    """Terminate a Popen process and any children in its process group."""
     try:
         os.killpg(proc.pid, signal.SIGTERM)
     except Exception:
@@ -227,16 +215,10 @@ def process_tree_rss_bytes(root_pid: int) -> int:
 
 
 class StreamStallTimeout(subprocess.TimeoutExpired):
-    """The claude output stream stopped growing for the stall window."""
+    pass
 
 
 class _StreamWatch:
-    """Incremental tail of a claude output file: growth time + result event.
-
-    Works for stream-json (one event per line) and plain json output (one
-    object, possibly without a trailing newline, held in the line buffer).
-    """
-
     def __init__(self, path: Path | str):
         self.path = str(path)
         self.last_growth = time.monotonic()
@@ -289,14 +271,6 @@ def wait_with_resource_monitor(
     log_fn: Any | None = None,
     stream_path: Path | str | None = None,
 ) -> int:
-    """Wait for proc while killing the whole tree on aggregate RSS overflow.
-
-    With stream_path set, also watch the claude output file: once the CLI has
-    written its terminal result event the session is over, so a process that
-    outlives it (an orphaned background tool holding the container open) is
-    reaped and the call still returns success. A file that stops growing
-    entirely means no tokens are being generated: raise StreamStallTimeout
-    rather than wait forever. Both windows are env-tunable."""
     limits = _claude_limit_values()
     rss_limit = memory_bytes
     if rss_limit is None and limits:
@@ -357,7 +331,6 @@ def docker_available() -> bool:
 
 
 def _live_claude_gateway_ip() -> str | None:
-    """The claude-gateway container's IP on the claude-filtered network."""
     try:
         res = subprocess.run(
             [
@@ -376,13 +349,6 @@ def _live_claude_gateway_ip() -> str | None:
 
 
 def claude_gateway_ip(explicit: str | None = None) -> str | None:
-    """Resolve the claude egress gateway's agent-side IP (default route + DNS).
-
-    Prefers the explicit value, then the live claude-gateway container, then the
-    cached file. A file-only IP is treated as stale after a Docker restart (same
-    reasoning as the codex backend): force a gateway_up.sh rather than launch a
-    container pointed at a dead gateway.
-    """
     if explicit:
         return explicit
     live = _live_claude_gateway_ip()
@@ -411,19 +377,7 @@ def wrap_for_docker(
     pids_limit: str = "512",
     extra_ro_binds: list[Path] | None = None,
 ) -> list[str]:
-    """Wrap `cmd` (a full `claude ...` argv) in a locked-down Docker run.
-
-    This is the Docker analogue of ``wrap_for_sandbox`` and is intentionally
-    bind-for-bind identical to it, mounted at the SAME absolute host paths inside
-    the container. Same paths => the prompt's embedded absolute paths, the cwd,
-    and the ~/.claude project-session hashing (which keys on cwd) all match the
-    bwrap path exactly, so claude behaves identically, --continue/--resume keep
-    working, and the files written into the run dir are byte-equivalent. The only
-    differences from bwrap are (a) network egress is filtered through the
-    allowlisting gateway instead of open, and (b) the image ships a Python
-    toolbox. Raises RuntimeError if the gateway is not up (fail closed -- never
-    silently run without isolation).
-    """
+    """Wrap a claude command in a locked-down Docker run."""
     home = Path(home_dir or os.environ.get("HOME", "/root"))
     workspace_dir = workspace_dir.resolve()
     engine_output_dir = engine_output_dir.resolve()
@@ -510,10 +464,7 @@ def wrap_for_sandbox(
     home_dir: Path | None = None,
     extra_ro_binds: list[Path] | None = None,
 ) -> list[str]:
-    """Wrap cmd in a bwrap sandbox. Returns cmd unchanged if bwrap is unavailable.
-
-    workspace_dir is bound read-write. engine_output_dir is bound read-only so symlinks resolve.
-    """
+    """Wrap a command in bubblewrap. Returns it unchanged if bubblewrap is missing."""
     if not bwrap_available():
         log.warning(
             "bwrap not found; running '%s' without filesystem sandbox. "

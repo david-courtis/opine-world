@@ -1,10 +1,5 @@
-"""Bounded planning over a synthesized ARC-AGI-3 world model.
+"""Search the world model for a plan that reaches reward."""
 
-The engine owns policy switching and real-environment execution. This module is
-only the model-side search/verification piece: load ``game_engine.py``, prefer a
-synth-authored planner hook when available, and otherwise run a bounded BFS over
-``transition_function`` + ``reward_function``.
-"""
 from __future__ import annotations
 
 import copy
@@ -20,8 +15,6 @@ from typing import Any, Callable
 
 @dataclass
 class PlannerModel:
-    """Imported synthesized model plus optional planning helpers."""
-
     module: Any
     transition_function: Callable
     reward_function: Callable
@@ -35,8 +28,6 @@ class PlannerModel:
 
 @dataclass
 class PlanStep:
-    """One predicted model step in a plan trace."""
-
     action: Any
     next_state: Any
     reward: float
@@ -53,8 +44,6 @@ class PlanStep:
 
 @dataclass
 class PlanResult:
-    """Planner outcome."""
-
     ok: bool
     source: str
     plan: list[Any] = field(default_factory=list)
@@ -75,17 +64,10 @@ class PlanResult:
 
 
 class PlannerTimeout(TimeoutError):
-    """Raised when a planning attempt exceeds its wall-clock budget."""
+    pass
 
 
 class _Deadline:
-    """Small SIGALRM-based timeout guard.
-
-    The ARC engine runs planning on the main thread on Unix-like systems, where
-    SIGALRM is available. If signal installation fails, elapsed-time checks in
-    the BFS loop still cap the search.
-    """
-
     def __init__(self, seconds: float | int | None):
         self.seconds = float(seconds or 0)
         self._old = None
@@ -117,8 +99,6 @@ class _Deadline:
 
 
 def validate_counter_mask(cells: Any) -> frozenset[tuple[int, int]]:
-    """Validate the optional move-counter mask contract."""
-
     try:
         pts = {(int(r), int(c)) for (r, c) in (cells or [])}
     except Exception:
@@ -141,8 +121,7 @@ def validate_counter_mask(cells: Any) -> frozenset[tuple[int, int]]:
 
 
 def load_model(code_path: str | Path, *, module_name: str = "_arc3_planner_model") -> PlannerModel:
-    """Import a synthesized ``game_engine.py`` file."""
-
+    """Import a synthesized game_engine.py."""
     code_path = Path(code_path)
     spec = importlib.util.spec_from_file_location(module_name, str(code_path))
     if spec is None or spec.loader is None:
@@ -178,8 +157,6 @@ def load_model(code_path: str | Path, *, module_name: str = "_arc3_planner_model
 
 
 def normalize_action(action: Any, available_actions: list[int]) -> Any | None:
-    """Normalize a planner action and reject actions unavailable in the env."""
-
     available = {int(a) for a in available_actions}
     try:
         if isinstance(action, dict):
@@ -227,11 +204,6 @@ def _dedupe_actions(actions: list[Any]) -> list[Any]:
 
 
 def _solid_pixel_offset(obj: dict) -> tuple[int, int] | None:
-    """Sprite-local (px, py) of the solid pixel nearest the sprite centre.
-
-    Games only accept clicks on non-transparent pixels, so a bbox centre
-    aimed at a hollow sprite silently misses.
-    """
     pixels = obj.get("pixels")
     if not isinstance(pixels, list) or not pixels:
         return None
@@ -309,8 +281,6 @@ def default_action_candidates(
     frames_only: bool = False,
     max_click_targets: int = 0,
 ) -> list[Any]:
-    """Build a conservative primitive action set for model search."""
-
     candidates: list[Any] = []
     for aid in sorted({int(a) for a in available_actions}):
         if aid in (0, 7):
@@ -337,8 +307,6 @@ def get_action_candidates(
     frames_only: bool = False,
     max_click_targets: int = 0,
 ) -> list[Any]:
-    """Use a model-provided action candidate hook, falling back to defaults."""
-
     raw: Any = None
     if callable(model.action_candidates):
         for call in (
@@ -412,8 +380,7 @@ def validate_plan(
     max_depth: int,
     nodes: int = 0,
 ) -> PlanResult:
-    """Check that a proposed action sequence reaches reward under the model."""
-
+    """Check that a plan reaches reward under the world model."""
     if not plan:
         return PlanResult(False, source, reason="empty plan")
     if max_depth > 0 and len(plan) > max_depth:
@@ -585,15 +552,7 @@ def plan_from_model(
     timeout_s: float | int = 30,
     max_click_targets: int = 0,
 ) -> PlanResult:
-    """Return a predicted reward-reaching plan from the synthesized planner.
-
-    The synthesizer authors ``planner`` explicitly. There is no engine-side
-    search fallback (matching baseline1): an unauthored planner, or one whose
-    plan does not reach reward under the model, yields a not-ok result and the
-    engine bails to the analyzer rather than running an uninformed search whose
-    branching factor does not scale to ARC-3.
-    """
-
+    """Return a plan the world model predicts will reach reward."""
     try:
         with _Deadline(timeout_s):
             synth_plan = _call_synth_planner(
@@ -631,8 +590,6 @@ def _pixel_hash(pixels: Any) -> Any:
 def _rect_in_counter_mask(
     obj: dict, mask: frozenset[tuple[int, int]] | None,
 ) -> bool:
-    """Whether the object's display rectangle lies entirely inside the
-    validated move-counter mask (display-space (row, col) cells)."""
     if not mask:
         return False
     try:
@@ -656,8 +613,6 @@ def object_state_signature(
     wall_tags: tuple[str, ...] = ("ihdgageizm",),
     counter_mask: frozenset[tuple[int, int]] | None = None,
 ) -> dict:
-    """Verifier-compatible object-state signature."""
-
     sig = {}
     for obj in state or []:
         if not isinstance(obj, dict):
@@ -693,8 +648,6 @@ def object_states_equal(
     scope_tags: set[str] | None = None,
     counter_mask: frozenset[tuple[int, int]] | None = None,
 ) -> bool:
-    """Return True when object states match under the verifier signature."""
-
     return object_state_signature(
         predicted, scope_tags=scope_tags, counter_mask=counter_mask
     ) == object_state_signature(

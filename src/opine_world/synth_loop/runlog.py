@@ -1,8 +1,5 @@
-"""Append-only, grep-friendly run log for the agentic consumer.
+"""The run log the acting agent reads."""
 
-Each step is a fixed-format block delimited by [STEP N] ... [/STEP N] markers.
-Synthesis events, resume markers, and notes share the same file with their own markers.
-"""
 from __future__ import annotations
 
 import json
@@ -11,11 +8,7 @@ from typing import Any
 
 
 class RunLog:
-    """Writes each step to both run_log.txt (master) and levels/level_N.log (per-level).
-
-    Per-level files prevent cross-level state pollution when the analyzer filters transitions.
-    Cross-level events (synthesis, level_advance, resume, notes) land only in run_log.txt.
-    """
+    """Writes each step to run_log.txt and to a log for the current level."""
 
     def __init__(self, path: Path):
         self.path = Path(path)

@@ -1,16 +1,6 @@
 #!/usr/bin/env python3
-"""
-Run the core synthesis engine on any local ARC-AGI-3 game.
+"""Run the engine on one ARC-AGI-3 game."""
 
-The game is selected by ``--game <name>`` where ``<name>`` is a directory
-under ``environment_files/``. The runner auto-discovers the game class
-inside that directory (the only subclass of ``arcengine.ARCBaseGame``).
-
-Usage:
-    python play.py --game pushbox
-    python play.py --game complex_maze --max-actions 250
-    python play.py --game ls20 --resume results/ls20_run
-"""
 import argparse
 import importlib.util
 import os
@@ -22,8 +12,6 @@ _PROJECT = Path(__file__).resolve().parent
 
 
 def _find_game_dir(name: str) -> tuple[Path, Path]:
-    """Return (game_dir, game_py_path). game_dir is a directory containing
-    {name}.py. Some games nest under a version subdir, others do not."""
     root = _PROJECT / "environment_files" / name
     candidates = sorted(root.rglob(f"{name}.py"))
     if not candidates:
@@ -33,7 +21,6 @@ def _find_game_dir(name: str) -> tuple[Path, Path]:
 
 
 def _load_game_class(name: str, py_path: Path):
-    """Import the game module by path and return the ARCBaseGame subclass."""
     from arcengine import ARCBaseGame
     spec = importlib.util.spec_from_file_location(name, py_path)
     mod = importlib.util.module_from_spec(spec)
@@ -77,7 +64,6 @@ def _load(name, path):
 
 
 def _load_prompt(name: str) -> str:
-    """Read a prompt file (exact text, no stripping) from the synth_loop prompts dir."""
     return (
         _PROJECT
         / "src/opine_world/synth_loop/prompts"
@@ -86,6 +72,7 @@ def _load_prompt(name: str) -> str:
 
 
 def main():
+    """Read the flags, build the engine, and run one game."""
     parser = argparse.ArgumentParser(description="Run synthesis engine on any ARC-AGI-3 game")
     parser.add_argument("--game", type=str, required=True,
                         help="Game name (matches environment_files/<game>/)")
@@ -451,9 +438,6 @@ def main():
             "which frames-only does not provide."
         )
     if args.synth_mode == "monolithic":
-        # The factorization apparatus is stripped as one bundle. The fluent
-        # registry is the RDDL lifted-predicate layer, so leaving harvest on
-        # would keep half the treatment inside the ablated arm.
         args.sigma_fluent_harvest = False
 
     if args.action_script:
@@ -483,16 +467,6 @@ def main():
         n_script = sum(
             1 for line in script_path.read_text().splitlines() if line.strip()
         )
-        # The trajectory IS the budget. Without this the argparse default
-        # silently truncates the arm partway and the run reports itself
-        # complete, which is indistinguishable from a full replay in every
-        # artifact except the engine's exhaustion marker.
-        # Resuming carries the prior run's step counter, and the engine's loop
-        # compares that absolute step against max_actions. A 292-action script
-        # resumed at step 757 is therefore already "over budget" and replays
-        # zero actions while reporting itself complete. Offset the budget by
-        # what the resumed run already executed so the script gets its full
-        # length either way.
         resume_offset = 0
         if args.resume:
             rp = Path(args.resume)

@@ -1,29 +1,5 @@
-"""Natural-language ablation: strip the NL intermediate representation.
+"""Natural-language ablation. Removes comments and docstrings from what the agents keep."""
 
-The dual-agent structure carries a natural-language world model. The
-exploration agent is explicitly told to keep an interpretable NL account, the
-synthesizer writes prose handoffs, and the code itself carries comments and
-docstrings. Testing whether that NL representation earns its place cannot be
-done by removing one agent, because the dual-agent structure confers other
-advantages and the comparison would confound them. This module removes the NL
-instead, leaving the architecture untouched: every artifact the agents persist
-between invocations must be Python, and comments and docstrings are stripped
-before anything is carried forward.
-
-What that scopes the claim to. Each synthesis agent is freshly initialized, so
-what survives a round is exactly what the next agent reads. Stripping on
-persist therefore removes the NL representation from the loop, even though a
-single turn can still reason in prose internally. The honest statement is that
-no natural-language intermediate representation persists across agent
-invocations, which is the representational claim, not a claim about the
-model's private reasoning.
-
-What is deliberately NOT ablated: the engine's own NL descriptions of
-observations (diff text in context.txt, divergence feedback, the task prompt
-itself). Those are the environment interface, identical in every arm. Ablating
-them would change what the agent can observe rather than how it is allowed to
-represent what it learned.
-"""
 from __future__ import annotations
 
 import ast
@@ -31,17 +7,12 @@ import io
 import re
 import tokenize
 
-# Docstring position: a string expression as the first statement of a module,
-# function, or class. Every other string literal is data the code may need.
 _DOCSTRING_PARENTS = (
     ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
 )
 
 
 class StripResult:
-    """Stripped source plus what was removed, so the engine can log it and
-    the arm can be shown to have actually bound."""
-
     __slots__ = ("source", "n_comments", "n_docstrings", "error")
 
     def __init__(
@@ -69,14 +40,6 @@ class StripResult:
 
 
 def _strip_comments(source: str) -> tuple[str, int]:
-    """Remove comment text, leaving the rest of each line untouched.
-
-    Line-oriented rather than a token re-serialization: re-emitting the token
-    stream has to guess at whitespace, and guessing wrong ADDS lines. Since
-    the engine re-strips carried-forward code every round, any expansion
-    compounds. Comment token positions come from tokenize, so a '#' inside a
-    string literal is never mistaken for a comment.
-    """
     try:
         tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
     except (tokenize.TokenError, IndentationError, SyntaxError):
@@ -86,8 +49,6 @@ def _strip_comments(source: str) -> tuple[str, int]:
         if tok.type != tokenize.COMMENT:
             continue
         row, col = tok.start
-        # Earliest comment on the line wins, so a trailing comment containing
-        # a '#' cannot re-extend the cut.
         if row not in cuts or col < cuts[row]:
             cuts[row] = col
     if not cuts:
@@ -117,26 +78,16 @@ def _docstring_line_spans(tree: ast.AST) -> list[tuple[int, int]]:
         if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
             continue
         if len(body) == 1:
-            # Sole statement: it is load bearing as a body, so it must be
-            # replaced rather than deleted.
             spans.append((first.lineno, first.end_lineno or first.lineno))
         else:
             spans.append((first.lineno, first.end_lineno or first.lineno))
     return spans
 
 
-# Removing a comment or docstring leaves the line behind. Left uncollapsed
-# those blanks accumulate every time the engine re-strips carried-forward
-# code, which is once per synthesis round.
 MAX_CONSECUTIVE_BLANKS = 2
 
 
 def _collapse_blank_runs(source: str) -> str:
-    """Cap runs of blank lines so the strip cannot grow the file.
-
-    This is what makes the strip idempotent: without it, N rounds of
-    re-stripping inflate a module without bound.
-    """
     out: list[str] = []
     run = 0
     for line in source.splitlines():
@@ -154,11 +105,7 @@ def _collapse_blank_runs(source: str) -> str:
 
 
 def strip_natural_language(source: str) -> StripResult:
-    """Remove comments and docstrings, keeping the module importable.
-
-    A docstring that is a function's only statement becomes ``pass`` at the
-    same indentation, since deleting it would leave an empty body.
-    """
+    """Remove comments and docstrings and keep the code importable."""
     try:
         tree = ast.parse(source)
     except SyntaxError as exc:
@@ -205,8 +152,6 @@ def strip_natural_language(source: str) -> StripResult:
 
     stripped, n_comments = _strip_comments(no_docs)
     stripped = _collapse_blank_runs(stripped)
-    # A strip that breaks the file is not a strip. Fall back rather than hand
-    # the verifier something that will not import.
     try:
         ast.parse(stripped)
     except SyntaxError as exc:
@@ -218,7 +163,6 @@ def strip_natural_language(source: str) -> StripResult:
 
 
 def natural_language_violations(source: str) -> list[str]:
-    """Prose that survived, for logging. Empty means the arm bound."""
     result = strip_natural_language(source)
     out: list[str] = []
     if result.error:
@@ -231,12 +175,7 @@ def natural_language_violations(source: str) -> list[str]:
 
 
 def enforce_python_artifact(text: str) -> tuple[str, str | None]:
-    """Make a persisted handoff artifact Python, or say why it is not.
-
-    Returns (enforced_text, error). The shared documents keep their filenames
-    across arms so that staging, snapshotting, and the analyzer handoff are
-    byte-identical code paths in both, and only the content is manipulated.
-    """
+    """Return the text if it is Python, or the reason it is not."""
     if not text.strip():
         return text, None
     try:

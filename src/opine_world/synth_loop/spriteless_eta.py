@@ -1,10 +1,5 @@
-"""Synth-fed object abstraction for frames-only ETA diagnostics.
+"""Frames-only runs. Builds object transitions from the world model's extract_objects."""
 
-Frames-only runs do not receive engine sprite records.  When the synthesized
-``game_engine.py`` exports ``extract_objects(frame)``, this module applies that
-extractor to the observed frame replay and converts the result into the same
-list-of-object-dicts schema used by the object-centric epistemic machinery.
-"""
 from __future__ import annotations
 
 import copy
@@ -113,11 +108,7 @@ def normalize_objects(
     *,
     max_objects: int = MAX_OBJECTS_PER_FRAME,
 ) -> tuple[list[dict], list[str]]:
-    """Normalize synth-returned objects into the sprite-record-like schema.
-
-    Accepts dictionaries or simple objects with attributes.  Invalid entries are
-    skipped. The returned warnings are for diagnostics only.
-    """
+    """Convert the objects returned by extract_objects into object records."""
     warnings: list[str] = []
     frame_list = _frame_to_lists(frame)
     if raw_objects is None:
@@ -273,6 +264,7 @@ def build_spriteless_replay(
     replay_buffer: list[dict],
     extractor: Any,
 ) -> tuple[list[dict], dict]:
+    """Turn frame transitions into object transitions using extract_objects."""
     cache: dict[str, list[dict]] = {}
     errors: list[dict] = []
     out: list[dict] = []
@@ -337,12 +329,7 @@ def refresh_spriteless_diagnostics(
     max_candidates: int = 12,
     committed_features: list[dict] | None = None,
 ) -> dict[str, Any]:
-    """Compute frame-object epistemic artifacts from ``extract_objects``.
-
-    Returns a payload with ``ok`` and optional ``trace_record`` /
-    ``ontology_latest`` / ``replay`` entries.  All failures are represented
-    as artifacts, never raised, so a bad extractor cannot stop exploration.
-    """
+    """Compute the exploration matrix and eta for a frames-only run."""
     output_dir = Path(output_dir)
     code_path = Path(code_path)
     artifact_path = output_dir / ARTIFACT_NAME

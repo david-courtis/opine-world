@@ -1,8 +1,5 @@
-"""Structured hypothesis space for role names assigned to obfuscated sprite tags.
+"""Candidate role names for object tags, proposed by the acting agent."""
 
-Per-tag ranked candidate list updated by the analyzer via alias_updates.json.
-Always contains at least MIN_CANDIDATES entries. The unknown_n placeholders pad short lists.
-"""
 from __future__ import annotations
 
 import json
@@ -46,11 +43,6 @@ def apply_updates(
     aliases: dict[str, list[dict]],
     updates: dict[str, Any],
 ) -> dict[str, Any]:
-    """Apply analyzer-emitted updates from alias_updates.json. Returns an apply-summary.
-
-    Keys: "add" (score 0, noop if exists), "upvote" (increment by "by", default 1),
-    "remove" (drop candidate, re-pad if needed). All keys optional.
-    """
     summary = {"added": 0, "upvoted": 0, "removed": 0, "errors": []}
 
     for entry in updates.get("add", []):
@@ -127,7 +119,6 @@ def format_for_world_model_doc(
     *,
     top_k: int = 3,
 ) -> str:
-    """Render a markdown section showing top-k role candidates per tag for inclusion in world_model_doc."""
     if not aliases:
         return ""
     lines = ["## Type-role hypotheses (analyzer-maintained)",
@@ -180,11 +171,6 @@ def nondecorative_committed(
     min_margin: int = 3,
     decorative_set: frozenset[str] = DECORATIVE_DEFAULT,
 ) -> dict[str, str]:
-    """Return {tag: top_alias} for tags that are confidently committed and non-decorative (paper Prop. 5).
-
-    A tag qualifies when top_score >= min_score, top beats next-best by >= min_margin,
-    top alias is not an unknown_ placeholder, and the alias is not in the decorative set.
-    """
     out: dict[str, str] = {}
     for tag, entries in aliases.items():
         if not isinstance(entries, list) or not entries:
@@ -211,10 +197,6 @@ def nondecorative_committed(
 
 
 def annotate_text(text: str, aliases: dict[str, list[dict]]) -> str:
-    """Inject tag=role annotations into text for every tag that has a committed alias.
-
-    Longest tags are matched first to avoid partial replacement of shared prefixes.
-    """
     if not aliases or not text:
         return text
     pairs = []

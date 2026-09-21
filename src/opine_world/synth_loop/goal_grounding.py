@@ -1,22 +1,5 @@
-"""Goal-requirement grounding: localize coverage gaps named by the goal hypothesis.
+"""Check goal requirements against the replay buffer."""
 
-The LLM proposes each lifted requirement of the current natural-language goal
-hypothesis as a small executable Boolean predicate over object states. It
-never checks constraints itself. Two mechanical buffer scans dispose each
-predicate:
-
-1. Necessity: the predicate must hold at, or immediately before, every
-   historical reward step across all levels. Violators are rejected. This is
-   also the mechanical enforcement of ARC-3 goal continuity, since a revised
-   hypothesis must still explain every previous level's rewards.
-2. Satisfiability: a surviving predicate satisfied by no observed state names
-   a localized coverage hole and yields a goal-stratum mode class on the
-   object it concerns.
-
-Until reward fires on the current level, a nonzero coverage gap provably
-exists because the rewarding state is outside the buffer by definition.
-Grounded requirements localize that gap onto named objects.
-"""
 from __future__ import annotations
 
 import json
@@ -25,8 +8,6 @@ from typing import Any, Callable
 
 MAX_REQUIREMENTS = 6
 
-# Wall-clock budget for compiling and scanning ONE predicate over the whole
-# buffer. A predicate that cannot finish is invalid, not slow.
 REQUIREMENT_TIMEOUT_S = 5
 
 STATUS_ACCEPTED = "accepted"
@@ -43,7 +24,7 @@ def _raise_timeout(*_args):
 
 
 def parse_raw_requirements(raw: Any) -> tuple[list[dict], list[str]]:
-    """Validate the LLM-written payload. Returns (requirements, errors)."""
+    """Check the requirements the goal agent wrote. Returns the valid ones and the errors."""
     errors: list[str] = []
     if isinstance(raw, str):
         try:
@@ -108,18 +89,6 @@ def _compile_predicate(src: str) -> tuple[Callable | None, str | None]:
 
 
 def _states_of(transition: dict) -> list[tuple[list[dict], int, bool]]:
-    """States of a transition as (state, level, at_reward_moment). A
-    reward-firing transition's after-state belongs to the NEXT level
-    (ARC-3 reward means level advance), which is what makes per-level
-    satisfaction well defined at level boundaries.
-
-    Reward transitions also carry mid-animation tick states, attributed to
-    the completing level. The completing move and the level sweep are one
-    transition, so the goal-completed configuration exists only in those
-    ticks. The necessity scan accepts only reward-moment states (before
-    and ticks): the after-state of a reward transition is the next level's
-    entry, and counting it lets predicates about next-level objects pass
-    as goal requirements."""
     level = int(transition.get("level", 0) or 0)
     advanced = float(transition.get("reward", 0.0) or 0.0) > 0.0
     out = []
@@ -179,14 +148,7 @@ def ground_requirements(
     *,
     current_level: int | None = None,
 ) -> dict[str, Any]:
-    """Dispose each requirement against the buffer. Purely mechanical.
-
-    Necessity is checked cross-level (goal continuity). Satisfaction is
-    tracked both globally and for ``current_level``: a level-agnostic
-    completion condition is satisfied somewhere as soon as any level has
-    been solved, so the coverage hole is its non-satisfaction on the level
-    being played now.
-    """
+    """Test each requirement on the replay buffer. It must hold at every reward step."""
     results: list[dict] = []
     for req in requirements:
         fn, err = _compile_predicate(req["predicate_src"])
@@ -277,9 +239,7 @@ def ground_requirements(
 
 
 def goal_mode_injections(grounded: dict) -> list[dict]:
-    """Accepted requirements not yet satisfied on the current level are the
-    localized coverage holes. Falls back to global non-satisfaction when no
-    current level was given."""
+    """Requirements that passed but are not yet met on the current level."""
     per_level = grounded.get("current_level") is not None
     out = []
     for r in grounded.get("requirements", []):

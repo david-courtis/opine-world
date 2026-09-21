@@ -1,7 +1,5 @@
-"""Frame rendering and ASCII representation for the exploration LLM.
+"""Turn a frame into ASCII text or a PNG."""
 
-Converts ArcEngineEnv.get_frame() color-index arrays to base64 PNG and compact ASCII grids.
-"""
 from __future__ import annotations
 
 import base64
@@ -44,7 +42,7 @@ def _val_to_char(v: int) -> str:
 
 
 def frame_to_ascii(frame: np.ndarray, separator: str = "") -> str:
-    """One character per cell, rows separated by newlines."""
+    """One character per cell, one line per row."""
     arr = np.asarray(frame)
     lines = []
     for row in arr:
@@ -56,7 +54,6 @@ def frame_to_ascii(frame: np.ndarray, separator: str = "") -> str:
 def diff_to_ascii(
     before: np.ndarray, after: np.ndarray, separator: str = "",
 ) -> str:
-    """ASCII diff: '.' for unchanged cells, new char for changed cells. Shapes clipped to intersection."""
     b = np.asarray(before)
     a = np.asarray(after)
     min_rows = min(b.shape[0], a.shape[0])
@@ -79,7 +76,6 @@ def render_frame_png_b64(
     with_grid: bool = True,
     with_coords: bool = True,
 ) -> str:
-    """Render a 2D color-index frame to a base64-encoded PNG with optional gridlines and coordinate labels."""
     arr = np.asarray(frame, dtype=np.uint8)
     rows, cols = arr.shape
 
