@@ -34,7 +34,7 @@ Even so, we still consider this preliminary result an impressive score, and hope
    \widehat{P}_t,
    \widehat{f}_t^{-1})
 \big).
-\tag{2}
+\qquad \text{(2)}
 ```
 
 OPINE-World represents the unknown state, transition, and reward through a unified NL, Bayesian, and executable Python system. At a high level, the representation has five parts:
