@@ -22,9 +22,20 @@ Even so, we still consider this preliminary result an impressive score, and hope
 
 ### Model representation
 
-$$
-\widehat{\mathcal W} _t=\big((\widehat{\mathcal S} _{\mathrm{NL},t},\widehat T _{\mathrm{NL},t},\widehat R _{\mathrm{NL},t}),\widehat{\mathcal S} _{\mathrm B,t},(\widehat T _{\mathrm P,t},\widehat R _{\mathrm P,t},\widehat P _t,\widehat f _t^{-1})\big). \tag{2}
-$$
+```math
+\widehat{\mathcal{W}}_t =
+\big(
+  (\widehat{\mathcal{S}}_{\mathrm{NL},t},
+   \widehat{T}_{\mathrm{NL},t},
+   \widehat{R}_{\mathrm{NL},t}),
+  \widehat{\mathcal{S}}_{\mathrm{B},t},
+  (\widehat{T}_{\mathrm{P},t},
+   \widehat{R}_{\mathrm{P},t},
+   \widehat{P}_t,
+   \widehat{f}_t^{-1})
+\big).
+\tag{2}
+```
 
 OPINE-World represents the unknown state, transition, and reward through a unified NL, Bayesian, and executable Python system. At a high level, the representation has five parts:
 
@@ -177,3 +188,4 @@ The paper's sweep ran across four Claude Max accounts at $200 per account per mo
       url={https://arxiv.org/abs/2607.01531}, 
 }
 ```
+Funding Acknowledgement: This work was supported by the Institute of Information & communications Technology Planning & Evaluation (IITP) grant funded by the Korean government(MSIT) (No. RS-2024-00457882, National AI Research Lab Project).
